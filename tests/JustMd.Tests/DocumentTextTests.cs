@@ -187,11 +187,19 @@ namespace JustMd.Tests
         }
 
         [Fact]
-        public void An_edited_line_gets_the_majority_ending()
+        public void An_edited_line_keeps_its_ending_when_the_line_count_is_unchanged()
         {
             DocumentText document = DocumentText.Parse("a\r\nold\nc\r\nd\r\n", Utf8NoBom);
 
-            Assert.Equal("a\r\nnew\r\nc\r\nd\r\n", document.With("a\nnew\nc\nd", false).Compose());
+            Assert.Equal("a\r\nnew\nc\r\nd\r\n", document.With("a\nnew\nc\nd", false).Compose());
+        }
+
+        [Fact]
+        public void Lines_between_edits_keep_their_endings_when_the_line_count_is_unchanged()
+        {
+            DocumentText document = DocumentText.Parse("old1\nb\r\nold2\nd\r\ne\r\n", Utf8NoBom);
+
+            Assert.Equal("new1\nb\r\nnew2\nd\r\ne\r\n", document.With("new1\nb\nnew2\nd\ne", false).Compose());
         }
 
         [Theory]

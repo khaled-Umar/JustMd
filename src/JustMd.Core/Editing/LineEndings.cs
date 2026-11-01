@@ -10,7 +10,8 @@ namespace JustMd.Core.Editing
         /// <summary>
         /// Splits both texts into lines; lines in the common prefix and common suffix (by content,
         /// non-overlapping) take the ending they have in <paramref name="original"/> ("\r\n", "\n"
-        /// or "\r"); every other separator becomes <paramref name="fallback"/>.
+        /// or "\r"). So do edited lines when the line count is unchanged, since each still lines up
+        /// with its original. Every other separator becomes <paramref name="fallback"/>.
         /// </summary>
         public static string Apply(string lfText, string original, string fallback)
         {
@@ -47,7 +48,7 @@ namespace JustMd.Core.Editing
                 {
                     AppendEnding(result, original, anchors[i]);
                 }
-                else if (i >= lines.Count - suffix)
+                else if (i >= lines.Count - suffix || shift == 0)
                 {
                     AppendEnding(result, original, anchors[i + shift]);
                 }
