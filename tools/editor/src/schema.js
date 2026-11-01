@@ -9,6 +9,10 @@ import { Schema } from 'prosemirror-model';
 import { schema as base } from 'prosemirror-markdown';
 import { tableNodes } from 'prosemirror-tables';
 
+// Separates a delimiter from a letter without any output: serialize writes it where the flanking
+// rules need one and parse drops it, so it never becomes a node. The page's sanitiser strips comments.
+export const INLINE_SEPARATOR = '<!-- -->';
+
 // Browsers ignore control characters and whitespace inside a URL scheme, so test without them.
 const stripIgnored = (url) => String(url).replace(/[\u0000- \u007f-\u009f]/g, '');
 const schemeOf = (url) => {
@@ -22,11 +26,13 @@ export function isSafeHref(href) {
   return scheme === null || scheme === 'http' || scheme === 'https' || scheme === 'mailto';
 }
 
-// Image sources: http, https, relative, or an absolute Windows path (a one-letter "scheme").
+// Image sources: http, https, relative, or an absolute Windows path (`c:foo` is neither).
 export function isSafeImageSrc(src) {
-  if (!stripIgnored(src)) return false;
+  const stripped = stripIgnored(src);
+  if (!stripped) return false;
+  if (/^[a-z]:[\\/]/i.test(stripped)) return true;
   const scheme = schemeOf(src);
-  return scheme === null || scheme === 'http' || scheme === 'https' || scheme.length === 1;
+  return scheme === null || scheme === 'http' || scheme === 'https';
 }
 
 const sourceAttrs = { srcIdx: { default: null }, srcPre: { default: null } };

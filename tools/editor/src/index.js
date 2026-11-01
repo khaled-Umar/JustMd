@@ -11,7 +11,7 @@ import { columnResizing, deleteCellSelection, isInTable, tableEditing } from 'pr
 import { EditorView } from 'prosemirror-view';
 import { commands, insideList, queries } from './commands.js';
 import { parse } from './parser.js';
-import { schema } from './schema.js';
+import { isSafeHref, isSafeImageSrc, schema } from './schema.js';
 import { serialize } from './serializer.js';
 
 const { nodes } = schema;
@@ -135,4 +135,6 @@ export {
   basePlugins,
   commands,
   queries,
+  isSafeHref,
+  isSafeImageSrc,
 };

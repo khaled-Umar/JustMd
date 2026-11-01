@@ -9,6 +9,9 @@
 // editorCommand { tabId, command, arg } names: the keys of JustMdEditor.commands listed in
 // PLAIN_COMMANDS, setHeading (arg is the level as a string, "1" to "6"), and four that need the
 // page's UI: setLink, insertImage and insertTable (open their popovers), toggleRtl.
+//
+// requestContent is answered with editorContent { tabId, requestId, markdown, rtl }, or, when
+// there is nothing to hand over, with { tabId, requestId, error: 'tooLarge' | 'failed' } alone.
 (function () {
   'use strict';
 
@@ -36,6 +39,8 @@
   }
 
   var DIRTY_DELAY = 250;
+  // Must equal WebMessageParser.MaxMarkdownLength: the host rejects anything longer.
+  var MAX_MARKDOWN_LENGTH = 8 * 1024 * 1024;
   var PLAIN_COMMANDS = ['setParagraph', 'toggleBold', 'toggleItalic', 'toggleStrike', 'toggleCode',
     'toggleBulletList', 'toggleOrderedList', 'toggleTaskList', 'toggleBlockquote', 'setCodeBlock',
     'insertHorizontalRule', 'indent', 'outdent', 'undo', 'redo'];
@@ -244,24 +249,9 @@
 
   // ---------- node views ----------
 
-  function isSafeLinkHref(href) {
-    var compact = href.replace(/[\u0000-\u0020]+/g, '');
-    var scheme = /^([a-z][a-z0-9+.\-]*):/i.exec(compact);
-    return !scheme || /^(https?|mailto)$/i.test(scheme[1]);
-  }
-
-  function isSafeImageSrc(src) {
-    var compact = src.replace(/[\u0000-\u0020]+/g, '');
-    if (/^[a-z]:[\\/]/i.test(compact)) {
-      return true;
-    }
-    var scheme = /^([a-z][a-z0-9+.\-]*):/i.exec(compact);
-    return !scheme || /^https?$/i.test(scheme[1]);
-  }
-
   // The URL to show for a raw Markdown image source, or null for a placeholder.
   function displayUrl(raw) {
-    if (!raw || !isSafeImageSrc(raw)) {
+    if (!raw || !PM.isSafeImageSrc(raw)) {
       return null;
     }
     var url = viewer.localImageUrl(raw);
@@ -673,7 +663,7 @@
 
   function applyLink() {
     var href = el.linkHref.value.trim();
-    if (!href || !isSafeLinkHref(href)) {
+    if (!href || !PM.isSafeHref(href)) {
       el.linkError.hidden = false;
       el.linkHref.focus();
       return;
@@ -723,7 +713,7 @@
 
   function applyImage() {
     var src = el.imageSrc.value.trim();
-    if (!src || !isSafeImageSrc(src)) {
+    if (!src || !PM.isSafeImageSrc(src)) {
       el.imageError.hidden = false;
       el.imageSrc.focus();
       return;
@@ -748,7 +738,7 @@
       el.imageSrc.focus();
       return;
     }
-    if (isSafeImageSrc(msg.src)) {
+    if (PM.isSafeImageSrc(msg.src)) {
       execOn(entry, PM.commands.insertImage({ src: msg.src, alt: msg.alt || null, title: null }));
     }
   }
@@ -846,7 +836,12 @@
     try {
       markdown = PM.serialize(entry.state.doc, entry.baseline);
     } catch (e) {
-      console.error(e); // no answer: the host's save times out and reports the failure
+      console.error(e);
+      post({ type: 'editorContent', tabId: entry.tabId, requestId: msg.requestId, error: 'failed' });
+      return;
+    }
+    if (markdown.length > MAX_MARKDOWN_LENGTH) {
+      post({ type: 'editorContent', tabId: entry.tabId, requestId: msg.requestId, error: 'tooLarge' });
       return;
     }
     // Typing can continue while the host writes the file; "saved" refers to this snapshot.

@@ -116,6 +116,23 @@ namespace JustMd.Tests
             Assert.Equal(LocalImageUrls.FromPath(expectedPath), url);
         }
 
+        [Fact]
+        public void Dialog_filter_lists_exactly_the_image_extensions()
+        {
+            string[] parts = LocalImageUrls.DialogFilter.Split('|');
+
+            Assert.Equal(2, parts.Length);
+            Assert.Equal("Images (" + parts[1] + ")", parts[0]);
+            string[] patterns = parts[1].Split(';');
+            Assert.All(patterns, pattern =>
+            {
+                Assert.StartsWith("*.", pattern);
+                Assert.True(LocalImageUrls.IsImageExtension(pattern));
+            });
+            Assert.Equal("*.png", patterns[0]);
+            Assert.Contains("*.avif", patterns);
+        }
+
         [Theory]
         [InlineData("https://example.com/a.png")]
         [InlineData("data:image/png;base64,AA")]

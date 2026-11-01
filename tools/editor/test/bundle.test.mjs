@@ -63,6 +63,26 @@ test('the bundle exposes the frozen contract as a global and round-trips', () =>
   assert.equal(api.serialize(doc, baseline), source);
 });
 
+test('the bundle exposes the link and image rules the page relies on', () => {
+  const sandbox = {};
+  vm.runInNewContext(bundle, sandbox);
+  const { isSafeHref, isSafeImageSrc } = sandbox.JustMdEditor;
+  assert.equal(typeof isSafeHref, 'function');
+  assert.equal(typeof isSafeImageSrc, 'function');
+  for (const src of ['C:\\a.png', 'c:/a.png', ' c:/a.png', 'img/a.png', 'https://a.example/x.png']) {
+    assert.equal(isSafeImageSrc(src), true, src);
+  }
+  for (const src of ['c:foo', 'c:', 'javascript:x', 'java\u0085script:x', 'mailto:a@b.c', 'data:image/png,x', '', ' ']) {
+    assert.equal(isSafeImageSrc(src), false, JSON.stringify(src));
+  }
+  for (const href of ['mailto:a@b.c', 'https://a.example', 'a/b.md', '#x']) {
+    assert.equal(isSafeHref(href), true, href);
+  }
+  for (const href of ['javascript:x', 'java\u0085script:x', 'java\tscript:x', 'data:text/html,x', 'c:foo']) {
+    assert.equal(isSafeHref(href), false, JSON.stringify(href));
+  }
+});
+
 test('the stylesheet carries the three upstream stylesheets', () => {
   const css = readFileSync(join(vendor, 'editor.css'), 'utf8');
   for (const selector of ['.ProseMirror-hideselection', '.tableWrapper', '.ProseMirror-gapcursor']) assert.ok(css.includes(selector), selector);

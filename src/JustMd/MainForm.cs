@@ -144,7 +144,11 @@ namespace JustMd
 
             // Whether a tab really has unsaved changes is only known after asking the page, so
             // closing is cancelled here and retried once the user's decision has been carried out.
-            if (!_closeApproved && _tabs.Tabs.Any(t => t.IsEditing))
+            // Windows shutting down is not held up for that: only known unsaved changes cancel it.
+            bool mayHaveUnsavedChanges = e.CloseReason == CloseReason.WindowsShutDown
+                ? _tabs.Tabs.Any(t => t.IsEditing && t.IsDirty)
+                : _tabs.Tabs.Any(t => t.IsEditing);
+            if (!_closeApproved && mayHaveUnsavedChanges)
             {
                 e.Cancel = true;
                 if (IsHandleCreated)

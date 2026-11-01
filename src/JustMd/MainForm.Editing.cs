@@ -22,10 +22,6 @@ namespace JustMd
         private const long MaxEditableBytes = 4L * 1024 * 1024;
         private const int ContentTimeoutMilliseconds = 5000;
 
-        /// <summary>The extensions <see cref="LocalImageUrls"/> serves.</summary>
-        private const string ImageDialogFilter =
-            "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.ico;*.svg;*.avif)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.ico;*.svg;*.avif";
-
         private readonly Dictionary<int, TaskCompletionSource<WebMessage?>> _contentRequests = new();
 
         /// <summary>Tab id to the revision last sent to the page. A tab missing here, or behind, has no current editor state.</summary>
@@ -399,7 +395,7 @@ namespace JustMd
 
             WebMessage? content = await RequestContentAsync(tab);
             if (content != null && tab.IsEditing && tab.Document != null && revision == tab.EditRevision
-                && tab.Document.With(content.Markdown!, content.Rtl).Compose() != tab.Document.Compose())
+                && (content.Error != null || tab.Document.With(content.Markdown!, content.Rtl).Compose() != tab.Document.Compose()))
             {
                 SetDirty(tab, true);
             }
@@ -495,7 +491,13 @@ namespace JustMd
                 return await SaveAsAsync(tab);
             }
 
-            if (tab.ExternalChangePending)
+            bool changedOnDisk = await ChangedOnDiskAsync(tab, path);
+            if (!IsStillEditing(tab, path))
+            {
+                return false;
+            }
+
+            if (changedOnDisk)
             {
                 DialogResult choice = MessageBox.Show(this,
                     tab.DisplayName + " changed on disk after you started editing.\n\nOverwrite the newer file on disk?\n\n" +
@@ -513,6 +515,24 @@ namespace JustMd
             }
 
             return await WriteFromEditorAsync(tab, path);
+        }
+
+        /// <summary>
+        /// The watcher reports with a delay and can miss events, so look at the file itself. The
+        /// text went through the same decoder as LastSavedText, and a save only happens if its text
+        /// survives that decoder, so an unchanged file compares equal. A file that is gone or
+        /// cannot be read has nothing newer to lose.
+        /// </summary>
+        private async Task<bool> ChangedOnDiskAsync(DocumentTab tab, string path)
+        {
+            if (tab.ExternalChangePending)
+            {
+                return true;
+            }
+
+            // A file that exists but cannot be read (locked, grown past the limit) may be newer: ask.
+            (string? text, _, _) = await ReadDocumentAsync(path);
+            return text == null ? File.Exists(path) : !string.Equals(text, tab.LastSavedText, StringComparison.Ordinal);
         }
 
         private async Task<bool> SaveAsAsync(DocumentTab tab)
@@ -574,7 +594,14 @@ namespace JustMd
         private async Task<bool> WriteFromEditorAsync(DocumentTab tab, string path)
         {
             WebMessage? content = await RequestContentAsync(tab);
-            if (content == null || !tab.IsEditing || tab.Document == null)
+            if (content?.Error == WebMessage.ErrorTooLarge && tab.IsEditing)
+            {
+                ShowEditError(tab.DisplayName + " is too large to save: the editor holds more than 8 million characters. " +
+                              "Remove some content and try again. Your changes are still in the editor.");
+                return false;
+            }
+
+            if (content == null || content.Error != null || !tab.IsEditing || tab.Document == null)
             {
                 ShowEditError("The editor did not hand over the document, so " + tab.DisplayName +
                               " was not saved. Your changes are still in the editor.");
@@ -604,7 +631,7 @@ namespace JustMd
             try
             {
                 byte[] bytes = document.ToBytes();
-                await Task.Run(() => TextFileWriter.WriteAtomic(path, bytes));
+                await Task.Run(() => TextFileWriter.Write(path, bytes));
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
             {
@@ -826,7 +853,7 @@ namespace JustMd
             using var dialog = new OpenFileDialog
             {
                 Title = "Insert image",
-                Filter = ImageDialogFilter,
+                Filter = LocalImageUrls.DialogFilter,
                 CheckFileExists = true,
                 RestoreDirectory = true,
             };

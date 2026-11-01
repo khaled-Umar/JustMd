@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using JustMd.Core;
@@ -22,6 +23,21 @@ namespace JustMd.Tests
         [InlineData("---\ntitle: x\n---\n\n<div dir=\"rtl\">\n\n# Title\n\n</div>\n")]
         [InlineData("    indented code\n\ntext with hard break  \n")]
         [InlineData("---\ntitle: x\n---\n")]
+        // Mixed endings, with 0, 1 and 3 trailing newlines.
+        [InlineData("a\r\nb\nc\r\n\nd")]
+        [InlineData("a\r\nb\nc\r\n\nd\n")]
+        [InlineData("a\nb\r\nc\n\r\nd\r\n")]
+        [InlineData("a\r\nb\nc\r\n\nd\r\n\n\r\n")]
+        [InlineData("a\nb\n\n\n")]
+        [InlineData("a\rb\r\nc\r\r")]
+        // Front matter and RTL wrapper, mixed.
+        [InlineData("---\r\nt: x\n---\r\n\n# T\r\nb\n")]
+        [InlineData("---\nt: x\r\n---\n\r\n# T\nb\r\n\n\n")]
+        [InlineData("---\r\nt: x\n---\r\n# T")]
+        [InlineData("<div dir=\"rtl\">\r\n\n# T\nb\r\n\r\n</div>")]
+        [InlineData("<div dir=\"rtl\">\n\r\n# T\r\nb\n\n</div>\r\n")]
+        [InlineData("<div dir=\"rtl\">\r\n\n# T\n\r\n</div>\n\r\n\n")]
+        [InlineData("---\r\nt: x\n---\r\n\n<div dir=\"rtl\">\n\r\n# T\r\nb\n\r\n</div>\r\n\n\n")]
         public void Parse_then_compose_is_identity(string text)
         {
             Assert.Equal(text, DocumentText.Parse(text, Utf8NoBom).Compose());
@@ -30,9 +46,36 @@ namespace JustMd.Tests
         [Fact]
         public void Text_the_code_page_can_store_survives()
         {
-            DocumentText document = DocumentText.Parse("# caf\u00e9\n", Windows1252());
+            // The check goes through the reader, whose legacy fallback is the culture's code page.
+            CultureInfo culture = CultureInfo.CurrentCulture;
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+            try
+            {
+                DocumentText document = DocumentText.Parse("# caf\u00e9\n", Windows1252());
 
-            Assert.True(document.SurvivesEncoding());
+                Assert.True(document.SurvivesEncoding());
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = culture;
+            }
+        }
+
+        [Fact]
+        public void A_leading_bom_character_is_not_composed_without_a_preamble()
+        {
+            DocumentText document = DocumentText.Parse("y\n", Utf8NoBom);
+
+            Assert.Equal("y\n", document.With("\uFEFFy", false).Compose());
+            Assert.Equal(document.Compose(), document.With("\uFEFFy", false).Compose()); // so not dirty either
+        }
+
+        [Fact]
+        public void A_bom_character_is_kept_where_the_reader_keeps_it()
+        {
+            Assert.Equal("\uFEFFy\n", DocumentText.Parse("x\n", new UTF8Encoding(true)).With("\uFEFFy", false).Compose());
+            Assert.Equal("---\nt: x\n---\n\uFEFFy\n", DocumentText.Parse("---\nt: x\n---\nz\n", Utf8NoBom).With("\uFEFFy", false).Compose());
+            Assert.Equal("a\uFEFF\n", DocumentText.Parse("x\n", Utf8NoBom).With("a\uFEFF", false).Compose());
         }
 
         [Theory]
@@ -133,18 +176,71 @@ namespace JustMd.Tests
         }
 
         [Fact]
-        public void Mixed_newlines_are_unified_on_compose()
+        public void A_one_word_edit_in_a_mixed_file_changes_only_that_line()
         {
-            Assert.Equal("a\r\nb\r\nc\r\n", DocumentText.Parse("a\r\nb\r\nc\n", Utf8NoBom).Compose());
+            string original = "---\nt: x\n---\r\n\nfirst\r\nsecond\nold word\nthird\nfourth\r\n\r\n\n";
+            DocumentText document = DocumentText.Parse(original, Utf8NoBom);
+
+            DocumentText edited = document.With(document.Body.Replace("old word", "new word"), false);
+
+            Assert.Equal(original.Replace("old word", "new word"), edited.Compose());
+        }
+
+        [Fact]
+        public void An_edited_line_gets_the_majority_ending()
+        {
+            DocumentText document = DocumentText.Parse("a\r\nold\nc\r\nd\r\n", Utf8NoBom);
+
+            Assert.Equal("a\r\nnew\r\nc\r\nd\r\n", document.With("a\nnew\nc\nd", false).Compose());
         }
 
         [Theory]
-        [InlineData("a", "a\n")]
-        [InlineData("a\n", "a\n")]
-        [InlineData("a\n\n\n", "a\n")]
-        public void Compose_ends_with_exactly_one_newline(string text, string expected)
+        [InlineData("a\r\nb\nc\r\nd\r\n", "a\r\nb\nx\r\ny\r\nc\r\nd\r\n")] // CRLF majority
+        [InlineData("a\nb\r\nc\nd\n", "a\nb\r\nx\ny\nc\nd\n")] // LF majority
+        public void Inserted_middle_lines_get_the_majority_ending(string original, string expected)
         {
-            Assert.Equal(expected, DocumentText.Parse(text, Utf8NoBom).Compose());
+            DocumentText document = DocumentText.Parse(original, Utf8NoBom);
+
+            Assert.Equal(expected, document.With(document.Body.Replace("c", "x\ny\nc"), false).Compose());
+        }
+
+        [Theory]
+        [InlineData("a\r\nb\nc\r\n\n\n")]
+        [InlineData("---\r\nt: x\n---\r\n\n<div dir=\"rtl\">\n\r\n# T\nb\n\r\n</div>")]
+        [InlineData("<DIV DIR=RTL>\r\n# T\n</DIV>\r\n")] // normalised, and stays so
+        [InlineData("")]
+        public void With_an_unchanged_body_composes_identically(string text)
+        {
+            DocumentText document = DocumentText.Parse(text, Utf8NoBom);
+
+            Assert.Equal(document.Compose(), document.With(document.Body, document.IsRtl).Compose());
+        }
+
+        [Theory]
+        [InlineData("a", "a")]
+        [InlineData("a\n", "a\n")]
+        [InlineData("a\n\n\n", "a\n\n\n")]
+        [InlineData("a\n  \n", "a\n\n")] // spaces on blank lines around the content are not kept
+        public void Trailing_newlines_are_kept(string text, string expected)
+        {
+            DocumentText document = DocumentText.Parse(text, Utf8NoBom);
+
+            Assert.Equal(expected, document.Compose());
+            Assert.Equal(expected.Replace("a", "b"), document.With("b", false).Compose());
+        }
+
+        [Theory]
+        [InlineData("", "\n", "b\n")]
+        [InlineData("\n\n\n", "\n", "b\n")]
+        [InlineData("  \r\n", "\r\n", "b\r\n")]
+        [InlineData("---\nt: x\n---", "---\nt: x\n---\n", "---\nt: x\n---\nb\n")]
+        [InlineData("---\r\nt: x\r\n---\r\n\r\n\r\n", "---\r\nt: x\r\n---\r\n", "---\r\nt: x\r\n---\r\nb\r\n")]
+        public void A_file_without_content_stays_minimal_and_new_content_ends_in_one_newline(string text, string expected, string typed)
+        {
+            DocumentText document = DocumentText.Parse(text, Utf8NoBom);
+
+            Assert.Equal(expected, document.Compose());
+            Assert.Equal(typed, document.With("b", false).Compose());
         }
 
         [Fact]
@@ -210,7 +306,36 @@ namespace JustMd.Tests
         {
             byte[] bytes = DocumentText.Parse("a", new UTF8Encoding(true)).ToBytes();
 
-            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF, (byte)'a', (byte)'\n' }, bytes);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF, (byte)'a' }, bytes);
+        }
+    }
+
+    public class LineEndingsTests
+    {
+        [Theory]
+        [InlineData("a\nb\n", "a\r\nb\n", "\r\n", "a\r\nb\n")] // identical: all from the original
+        [InlineData("a\nb", "a\rb", "\n", "a\rb")] // lone CR
+        [InlineData("x\nb\n", "a\nb\r\n", "\n", "x\nb\r\n")] // edited first line: fallback, rest kept
+        [InlineData("a\nx", "a\r\nb", "\n", "a\r\nx")] // edited last line: nothing after it
+        [InlineData("a\n", "a", "\r\n", "a\r\n")] // the original's last line has no ending to give
+        [InlineData("a\nb", "a", "\r\n", "a\r\nb")]
+        [InlineData("a", "a\r\nb\r\n", "\n", "a")]
+        [InlineData("\n", "", "\r\n", "\r\n")]
+        [InlineData("", "a\r\n", "\n", "")]
+        [InlineData("a\nb\na\n", "a\r\na\n", "\n", "a\r\nb\na\n")] // prefix and suffix do not overlap
+        [InlineData("a\na\n", "a\r\nb\na\n", "\n", "a\r\na\n")]
+        [InlineData("a\n\nb", "a\r\r\nb", "\n", "a\r\r\nb")] // CR then CRLF: two separators
+        public void Applies_endings_of_the_common_lines(string lfText, string original, string fallback, string expected)
+        {
+            Assert.Equal(expected, LineEndings.Apply(lfText, original, fallback));
+        }
+
+        [Theory]
+        [InlineData("a\nb\nc\n", "\r\n", "a\r\nb\r\nc\r\n")]
+        [InlineData("a\nb\nc\n", "\n", "a\nb\nc\n")]
+        public void Without_common_lines_every_separator_is_the_fallback(string lfText, string fallback, string expected)
+        {
+            Assert.Equal(expected, LineEndings.Apply(lfText, "x", fallback));
         }
     }
 

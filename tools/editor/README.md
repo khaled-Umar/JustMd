@@ -34,6 +34,16 @@ What a rewritten block loses (it renders the same unless noted):
 
 Source line breaks inside a paragraph are kept as `\n` in the text, so the editor (`white-space: pre-wrap`) shows a soft break as a line break where view mode shows a space.
 
+A rewritten block keeps its text and structure, so it can contain more than the plain syntax:
+
+- Whitespace at the start of a line and at the end of a wrapped line is written as `&#32;` or `&#9;`, outside any delimiters (`&#32;   **x**`), because Markdig decodes an entity before applying the flanking rules; markers that would start a block are escaped on every line, including after a hard break. Whitespace at the very end of a block is written as it is and the parser drops it.
+- A delimiter CommonMark would not accept next to a letter gets the separator `<!-- -->`: `**(a)**b` is written `**(a)**<!-- -->b`. `parse` drops exactly this comment, so it never becomes a node; other comments stay `html_inline`. The page's sanitiser strips it from view mode.
+- Where bold and italic start or end next to each other, the block writes italic with `_`: `**a**_b_`.
+- The same separator follows a backtick in front of a code span, which Markdig would not open otherwise.
+- The noncharacters U+FDD0 to U+FDD4 are used internally while writing, so they cannot survive in rewritten text.
+
+Text that reads as a footnote definition (`[^1]: x`) is written as it is, because `[^1]` is protected above. It comes back as a definition, not a paragraph. Markdig-only syntax is plain text to the editor and is written as it is, so that real uses survive an edit; text that only looks like it renders as that syntax in view mode: `==a==`, `:a:`, `a)`, `: def`, `+---`. An empty bullet directly after a paragraph renders as a literal `-` in Markdig.
+
 ## window.JustMdEditor
 
 This contract is frozen; the page (`src/JustMd/web/editor.js`) codes against it.
@@ -41,6 +51,8 @@ This contract is frozen; the page (`src/JustMd/web/editor.js`) codes against it.
 ```js
 parse(markdown) -> { doc, baseline }          // baseline: { lines, doc, rtl? } plus internals; otherwise opaque
 serialize(doc, baseline) -> string            // LF-only
+isSafeHref(href) -> boolean                   // the link rule of the schema and of setLink
+isSafeImageSrc(src) -> boolean                // the image rule of the schema, insertImage and updateImage
 schema, EditorState, EditorView, Plugin, PluginKey, TextSelection, keymap, history, undo, redo
 basePlugins({ onEscape, underWebView }) -> Plugin[]   // keymap (Ctrl bindings only when !underWebView), history, dropCursor, gapCursor, tableEditing, columnResizing
 commands: { setParagraph, setHeading(level), toggleBold, toggleItalic, toggleStrike, toggleCode,

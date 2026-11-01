@@ -8,7 +8,7 @@
 
 import MarkdownIt from 'markdown-it';
 import { MarkdownParser } from 'prosemirror-markdown';
-import { schema } from './schema.js';
+import { INLINE_SEPARATOR, schema } from './schema.js';
 
 const md = new MarkdownIt('commonmark', { html: true, linkify: false }).enable(['table', 'strikethrough']);
 
@@ -36,6 +36,7 @@ md.core.ruler.after('inline', 'justmd_inline_nodes', (state) => {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.type === 'inline') {
+      token.children = token.children.filter((child) => !(child.type === 'html_inline' && child.content === INLINE_SEPARATOR));
       for (const child of token.children) {
         if (child.type === 'html_inline' && HTML_BREAK.test(child.content)) child.type = 'html_break';
         // Keep source line breaks. prosemirror-markdown's default turns them into spaces, which

@@ -12,7 +12,14 @@ namespace JustMd.Core.Editing
         /// <summary>Blank lines before the content (usually after front matter); kept on save.</summary>
         private readonly string _leadingBlankLines;
 
-        private DocumentText(string frontMatter, string leadingBlankLines, string body, bool isRtl, string newLine, Encoding encoding)
+        /// <summary>The text as read, raw endings: unchanged lines take their ending from it.</summary>
+        private readonly string _original;
+
+        /// <summary>Newlines after the content in the LF-only original; kept on save.</summary>
+        private readonly int _trailingNewLines;
+
+        private DocumentText(
+            string frontMatter, string leadingBlankLines, string body, bool isRtl, string newLine, Encoding encoding, string original, int trailingNewLines)
         {
             FrontMatter = frontMatter;
             _leadingBlankLines = leadingBlankLines;
@@ -20,6 +27,8 @@ namespace JustMd.Core.Editing
             IsRtl = isRtl;
             NewLine = newLine;
             Encoding = encoding;
+            _original = original;
+            _trailingNewLines = trailingNewLines;
         }
 
         /// <summary>Empty, or the YAML block including its closing line and one "\n" (LF-only).</summary>
@@ -30,7 +39,7 @@ namespace JustMd.Core.Editing
 
         public bool IsRtl { get; }
 
-        /// <summary>"\r\n" if the original had more CRLF than LF, else "\n".</summary>
+        /// <summary>"\r\n" if the original had more CRLF than LF, else "\n": the ending of lines the original does not have.</summary>
         public string NewLine { get; }
 
         /// <summary>As returned by <see cref="TextFileReader"/>; its preamble decides the BOM.</summary>
@@ -42,29 +51,33 @@ namespace JustMd.Core.Editing
             (string frontMatter, string content) = Editing.FrontMatter.Split(ToLf(text));
             string trimmed = TrimBlankLines(content, out string leading);
             bool isRtl = RtlWrapper.TryUnwrap(trimmed, out string inner);
-            return new DocumentText(frontMatter, leading, isRtl ? inner : trimmed, isRtl, newLine, encoding);
+
+            // A file without content has no trailing newlines to keep: what gets typed into it ends like a new file.
+            int trailingNewLines = trimmed.Length == 0 ? 1 : CountNewLines(content, leading.Length + trimmed.Length);
+            return new DocumentText(frontMatter, leading, isRtl ? inner : trimmed, isRtl, newLine, encoding, text, trailingNewLines);
         }
 
         public static DocumentText CreateEmpty() =>
-            new(string.Empty, string.Empty, string.Empty, false, "\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            new(string.Empty, string.Empty, string.Empty, false, "\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), string.Empty, 1);
 
         public DocumentText With(string body, bool isRtl) =>
-            new(FrontMatter, _leadingBlankLines, TrimBlankLines(ToLf(body), out _), isRtl, NewLine, Encoding);
+            new(FrontMatter, _leadingBlankLines, TrimBlankLines(ToLf(body), out _), isRtl, NewLine, Encoding, _original, _trailingNewLines);
 
         /// <summary>The same document, to be stored as UTF-8 without a BOM.</summary>
         public DocumentText AsUtf8() =>
-            new(FrontMatter, _leadingBlankLines, Body, IsRtl, NewLine, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            new(FrontMatter, _leadingBlankLines, Body, IsRtl, NewLine, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), _original, _trailingNewLines);
 
         /// <summary>
-        /// False if storing the text in <see cref="Encoding"/> would change it: a legacy code page
-        /// turns what it lacks into "?" or a look-alike, and a lone surrogate fits no encoding.
+        /// False if the next read of the stored file would not return <see cref="Compose"/>: a legacy
+        /// code page turns what it lacks into "?" or a look-alike, a lone surrogate fits no encoding,
+        /// and legacy bytes that happen to be valid UTF-8 get read as UTF-8.
         /// </summary>
         public bool SurvivesEncoding()
         {
             string text = Compose();
             try
             {
-                return string.Equals(Encoding.GetString(Encoding.GetBytes(text)), text, StringComparison.Ordinal);
+                return string.Equals(TextFileReader.Decode(ToBytes(), out _), text, StringComparison.Ordinal);
             }
             catch (ArgumentException)
             {
@@ -73,17 +86,24 @@ namespace JustMd.Core.Editing
             }
         }
 
-        /// <summary>The full file text: front matter, then the body (wrapped if RTL), <see cref="NewLine"/> applied, one trailing newline.</summary>
+        /// <summary>
+        /// The full file text: front matter, then the body (wrapped if RTL), the original's trailing
+        /// newlines. Unchanged lines keep their ending, the others get <see cref="NewLine"/>.
+        /// Without a preamble, a U+FEFF at the very start is dropped: the next read would take it
+        /// for a BOM, so it could not be kept anyway.
+        /// </summary>
         public string Compose()
         {
-            string content = IsRtl ? RtlWrapper.Wrap(Body) : Body;
-            string text = FrontMatter + (content.Length == 0 ? string.Empty : _leadingBlankLines + content + "\n");
-            if (text.Length == 0)
-            {
-                text = "\n";
-            }
+            string text = LineEndings.Apply(ComposeLf(), _original, NewLine);
+            return Encoding.GetPreamble().Length == 0 ? text.TrimStart('\uFEFF') : text;
+        }
 
-            return NewLine == "\n" ? text : text.Replace("\n", NewLine);
+        /// <summary>What <see cref="Compose"/> returns, before line endings: LF-only.</summary>
+        internal string ComposeLf()
+        {
+            string content = IsRtl ? RtlWrapper.Wrap(Body) : Body;
+            string text = FrontMatter + (content.Length == 0 ? string.Empty : _leadingBlankLines + content + new string('\n', _trailingNewLines));
+            return text.Length == 0 ? "\n" : text;
         }
 
         /// <summary>The bytes to write: BOM (if the encoding has one) followed by <see cref="Compose"/>.</summary>
@@ -132,6 +152,20 @@ namespace JustMd.Core.Editing
             int end = text.IndexOf('\n', last);
             leading = text.Substring(0, start);
             return text.Substring(start, (end < 0 ? text.Length : end) - start);
+        }
+
+        private static int CountNewLines(string text, int start)
+        {
+            int count = 0;
+            for (int i = start; i < text.Length; i++)
+            {
+                if (text[i] == '\n')
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private static string DetectNewLine(string text)

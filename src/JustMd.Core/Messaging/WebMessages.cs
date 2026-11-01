@@ -61,7 +61,7 @@ namespace JustMd.Core.Messaging
         /// <summary>The editor's unsaved state changed (<see cref="WebMessage.Dirty"/>).</summary>
         EditorDirty,
 
-        /// <summary>The answer to "requestContent" (<see cref="WebMessage.RequestId"/>, <see cref="WebMessage.Markdown"/>, <see cref="WebMessage.Rtl"/>).</summary>
+        /// <summary>The answer to "requestContent" (<see cref="WebMessage.RequestId"/>, then <see cref="WebMessage.Markdown"/> and <see cref="WebMessage.Rtl"/>, or <see cref="WebMessage.Error"/>).</summary>
         EditorContent,
 
         /// <summary>User asked to browse for an image to insert.</summary>
@@ -74,6 +74,12 @@ namespace JustMd.Core.Messaging
     /// <summary>A validated message from the viewer page.</summary>
     public sealed class WebMessage
     {
+        /// <summary>The document is over <see cref="WebMessageParser.MaxMarkdownLength"/>.</summary>
+        public const string ErrorTooLarge = "tooLarge";
+
+        /// <summary>The editor could not produce the Markdown.</summary>
+        public const string ErrorFailed = "failed";
+
         internal WebMessage(WebMessageType type)
         {
             Type = type;
@@ -102,8 +108,11 @@ namespace JustMd.Core.Messaging
         /// <summary>For <see cref="WebMessageType.EditorContent"/>.</summary>
         public bool Rtl { get; internal init; }
 
-        /// <summary>For <see cref="WebMessageType.EditorContent"/>.</summary>
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>. Null when <see cref="Error"/> is set.</summary>
         public string? Markdown { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>: why the page has no Markdown to hand over (<see cref="ErrorTooLarge"/> or <see cref="ErrorFailed"/>), else null.</summary>
+        public string? Error { get; internal init; }
 
         /// <summary>For <see cref="WebMessageType.EditorContent"/>.</summary>
         public int RequestId { get; internal init; }
@@ -204,8 +213,19 @@ namespace JustMd.Core.Messaging
         private static WebMessage? ParseEditorContent(IncomingDto dto)
         {
             if (dto.TabId is not int id || id <= 0
-                || dto.RequestId is not int requestId || requestId <= 0
-                || dto.Rtl is not bool rtl
+                || dto.RequestId is not int requestId || requestId <= 0)
+            {
+                return null;
+            }
+
+            if (dto.Error != null)
+            {
+                return dto.Error is WebMessage.ErrorTooLarge or WebMessage.ErrorFailed
+                    ? new WebMessage(WebMessageType.EditorContent) { TabId = id, RequestId = requestId, Error = dto.Error }
+                    : null;
+            }
+
+            if (dto.Rtl is not bool rtl
                 || dto.Markdown == null || dto.Markdown.Length > MaxMarkdownLength)
             {
                 return null;
@@ -284,6 +304,9 @@ namespace JustMd.Core.Messaging
 
             [JsonPropertyName("requestId")]
             public int? RequestId { get; set; }
+
+            [JsonPropertyName("error")]
+            public string? Error { get; set; }
         }
     }
 

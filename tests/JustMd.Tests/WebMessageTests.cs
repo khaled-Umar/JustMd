@@ -165,6 +165,57 @@ namespace JustMd.Tests
             Assert.Null(WebMessageParser.Parse(json));
         }
 
+        [Theory]
+        [InlineData("tooLarge")]
+        [InlineData("failed")]
+        public void Editor_content_can_report_an_error_instead_of_markdown(string error)
+        {
+            WebMessage message = WebMessageParser.Parse(
+                "{\"type\":\"editorContent\",\"tabId\":2,\"requestId\":9,\"error\":\"" + error + "\"}")!;
+
+            Assert.Equal(WebMessageType.EditorContent, message.Type);
+            Assert.Equal(2, message.TabId);
+            Assert.Equal(9, message.RequestId);
+            Assert.Equal(error, message.Error);
+            Assert.Null(message.Markdown);
+        }
+
+        [Fact]
+        public void An_error_wins_over_markdown_sent_with_it()
+        {
+            WebMessage message = WebMessageParser.Parse(
+                "{\"type\":\"editorContent\",\"tabId\":2,\"requestId\":9,\"error\":\"failed\",\"markdown\":\"a\",\"rtl\":true}")!;
+
+            Assert.Equal("failed", message.Error);
+            Assert.Null(message.Markdown);
+            Assert.False(message.Rtl);
+        }
+
+        [Fact]
+        public void Valid_editor_content_has_no_error()
+        {
+            WebMessage message = WebMessageParser.Parse(
+                "{\"type\":\"editorContent\",\"tabId\":2,\"requestId\":9,\"markdown\":\"a\",\"rtl\":false}")!;
+
+            Assert.Null(message.Error);
+            Assert.Equal("a", message.Markdown);
+        }
+
+        [Theory]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"requestId\":1,\"error\":\"other\"}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"requestId\":1,\"error\":\"TOOLARGE\"}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"requestId\":1,\"error\":\"\"}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"requestId\":1,\"error\":5}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"requestId\":1,\"error\":\"other\",\"markdown\":\"a\",\"rtl\":true}")]
+        [InlineData("{\"type\":\"editorContent\",\"requestId\":1,\"error\":\"failed\"}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":0,\"requestId\":1,\"error\":\"failed\"}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"error\":\"tooLarge\"}")]
+        [InlineData("{\"type\":\"editorContent\",\"tabId\":1,\"requestId\":0,\"error\":\"tooLarge\"}")]
+        public void Rejects_unknown_editor_errors_and_errors_without_ids(string json)
+        {
+            Assert.Null(WebMessageParser.Parse(json));
+        }
+
         [Fact]
         public void Editor_content_length_limit_is_inclusive()
         {
