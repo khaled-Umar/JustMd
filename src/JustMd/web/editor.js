@@ -3,8 +3,9 @@
 // message from the host, and the app bar's pencil button merely asks the host for one.
 //
 // Host -> page: edit, exitEdit, editorCommand, requestContent, saved, documentRenamed,
-// externalChange, imagePicked. The page keeps one entry per editing tab (state, undo history,
-// baseline), so background tabs can still be saved; only the shown tab has an EditorView.
+// externalChange, imagePicked, spellResult, spellSuggestions. The page keeps one entry per editing
+// tab (state, undo history, baseline), so background tabs can still be saved; only the shown tab
+// has an EditorView.
 //
 // editorCommand { tabId, command, arg } names: the keys of JustMdEditor.commands listed in
 // PLAIN_COMMANDS, setHeading (arg is the level as a string, "1" to "6"), and four that need the
@@ -12,6 +13,10 @@
 //
 // requestContent is answered with editorContent { tabId, requestId, markdown, rtl }, or, when
 // there is nothing to hand over, with { tabId, requestId, error: 'tooLarge' | 'failed' } alone.
+//
+// Spelling exists only when "edit" says spelling: true. The page then sends spellCheck and, from
+// its own menu, spellSuggest, spellIgnore and spellAdd; underlines change no text and no history.
+// With nativeSpelling: true in "edit" the browser's own checker is left on.
 (function () {
   'use strict';
 
@@ -41,6 +46,13 @@
   var DIRTY_DELAY = 250;
   // Must equal WebMessageParser.MaxMarkdownLength: the host rejects anything longer.
   var MAX_MARKDOWN_LENGTH = 8 * 1024 * 1024;
+  // Must equal WebMessageParser.MaxSpellingBlocks, MaxSpellingBlockLength and MaxSpellingTextLength.
+  var MAX_SPELLING_BLOCKS = 1000;
+  var MAX_SPELLING_BLOCK_LENGTH = 64 * 1024;
+  var MAX_SPELLING_TEXT_LENGTH = 128 * 1024;
+  var SPELLING_RETRY_DELAY = 100;
+  var ACTION_REPLACE = 2;
+  var ACTION_DELETE = 3;
   var PLAIN_COMMANDS = ['setParagraph', 'toggleBold', 'toggleItalic', 'toggleStrike', 'toggleCode',
     'toggleBulletList', 'toggleOrderedList', 'toggleTaskList', 'toggleBlockquote', 'setCodeBlock',
     'insertHorizontalRule', 'indent', 'outdent', 'undo', 'redo'];
@@ -76,7 +88,10 @@
     imageApply: document.getElementById('pop-image-apply'),
     popTable: document.getElementById('pop-table'),
     tableRows: document.getElementById('pop-table-rows'),
-    tableCols: document.getElementById('pop-table-cols')
+    tableCols: document.getElementById('pop-table-cols'),
+    popSpelling: document.getElementById('pop-spelling'),
+    spellingItems: document.getElementById('pop-spelling-items'),
+    spellingAdd: document.getElementById('pop-spelling-add')
   };
   var toolbarButtons = Array.prototype.slice.call(el.toolbar.querySelectorAll('button[data-cmd]'));
   var tableButtons = Array.prototype.slice.call(el.tableBar.querySelectorAll('button[data-table]'));
@@ -85,6 +100,8 @@
   var activeId = 0;
   var view = null;
   var openPopover = null;
+  var spellMenu = null; // what #pop-spelling is showing: { tabId, error, rect, requestId }
+  var spellRequests = 0; // page-global, so an id is never reused across edit sessions
 
   var post = viewer.post;
 
@@ -95,7 +112,7 @@
     var state = PM.EditorState.create({
       schema: PM.schema,
       doc: parsed.doc,
-      plugins: PM.basePlugins({ onEscape: onEscape, underWebView: !!webview })
+      plugins: PM.basePlugins({ onEscape: onEscape, underWebView: !!webview }).concat(spellingPlugins(msg))
     });
     return {
       tabId: msg.tabId,
@@ -103,6 +120,7 @@
       state: state,
       baseline: parsed.baseline,
       rtl: !!msg.rtl,
+      nativeSpelling: msg.nativeSpelling === true,
       // What is on disk. Kept apart from the baseline: serialising against the original baseline
       // stays correct after a save, and the undo history survives it.
       savedDoc: parsed.doc,
@@ -115,6 +133,22 @@
       externalChange: false,
       listed: false
     };
+  }
+
+  function spellingPlugins(msg) {
+    if (msg.spelling !== true) {
+      return [];
+    }
+    return [PM.spelling.plugin({
+      request: function (blocks, scan) {
+        var requestId = ++spellRequests;
+        post({ type: 'spellCheck', tabId: msg.tabId, requestId: requestId, scan: scan, blocks: blocks });
+        return requestId;
+      },
+      maxBlocks: MAX_SPELLING_BLOCKS,
+      maxBlockLength: MAX_SPELLING_BLOCK_LENGTH,
+      maxRequestLength: MAX_SPELLING_TEXT_LENGTH
+    })];
   }
 
   function dropEntry(tabId) {
@@ -161,7 +195,7 @@
       dispatchTransaction: dispatchTransaction,
       nodeViews: nodeViews,
       handleClick: onEditorClick,
-      attributes: { 'aria-label': 'Document editor' }
+      attributes: { 'aria-label': 'Document editor', spellcheck: entry.nativeSpelling ? 'true' : 'false' }
     });
     applyDirection(entry);
     el.scroller.scrollTop = top;
@@ -529,6 +563,29 @@
     });
   }
 
+  // Like execOn for what changes no text, so it never counts as a change to the tab. Waits out an
+  // IME composition: redrawing around the text being composed can disturb it.
+  function proofOn(entry, make) {
+    var tr;
+    if (entry.tabId !== activeId || !view) {
+      tr = make(entry.state);
+      if (tr) {
+        entry.state = entry.state.apply(tr);
+      }
+    } else if (view.composing) {
+      setTimeout(function () {
+        if (entries.get(entry.tabId) === entry) {
+          proofOn(entry, make);
+        }
+      }, SPELLING_RETRY_DELAY);
+    } else {
+      tr = make(view.state);
+      if (tr) {
+        view.dispatch(tr);
+      }
+    }
+  }
+
   // ---------- toolbar ----------
 
   function nearest(state, test) {
@@ -605,6 +662,14 @@
     closePopover(false);
     popover.hidden = false;
     openPopover = popover;
+    placePopover(popover, rect);
+    if (focusTarget) {
+      focusTarget.focus();
+      focusTarget.select();
+    }
+  }
+
+  function placePopover(popover, rect) {
     var width = popover.offsetWidth;
     var height = popover.offsetHeight;
     var left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
@@ -614,10 +679,6 @@
     }
     popover.style.left = Math.round(left) + 'px';
     popover.style.top = Math.round(top) + 'px';
-    if (focusTarget) {
-      focusTarget.focus();
-      focusTarget.select();
-    }
   }
 
   function closePopover(refocus) {
@@ -642,7 +703,8 @@
     var stale = docChanged
       || (openPopover === el.popLink && !PM.queries.linkAt(state))
       || (openPopover === el.popImage && !PM.queries.imageAt(state))
-      || openPopover === el.popTable;
+      || openPopover === el.popTable
+      || (openPopover === el.popSpelling && !isWordSelected(state));
     if (stale) {
       closePopover(false);
     }
@@ -756,6 +818,120 @@
     var rows = clampField(el.tableRows, 1, 100, 3);
     var cols = clampField(el.tableCols, 1, 30, 3);
     PM.commands.insertTable(rows, cols)(view.state, view.dispatch, view);
+    closePopover(true);
+  }
+
+  // ---------- spelling menu ----------
+
+  // The menu selects its word, and the browser reports selections late: only a different one is news.
+  function isWordSelected(state) {
+    return !!spellMenu && state.selection.from === spellMenu.error.from && state.selection.to === spellMenu.error.to;
+  }
+
+  function wordRect(error) {
+    var start = view.coordsAtPos(error.from);
+    var end = view.coordsAtPos(error.to);
+    return {
+      left: Math.min(start.left, end.left),
+      right: Math.max(start.right, end.right),
+      top: Math.min(start.top, end.top),
+      bottom: Math.max(start.bottom, end.bottom)
+    };
+  }
+
+  // The caret rule hides the underline of a word the caret stands at the end of, and that word is
+  // still misspelled: there the mouse position decides, as there is no element to go by.
+  function spellingErrorFor(event) {
+    var selection = view.state.selection;
+    var target = event.target && event.target.closest ? event.target.closest('.spell-error') : null;
+    if (target) {
+      // One position in: at the boundary of two flagged words, errorAt would return the left one.
+      var flagged = PM.spelling.errorAt(view.state, view.posAtDOM(target, 0) + 1);
+      // Inside a selection of anything but this word the browser's menu stays, so Cut and Copy do.
+      // A click outside the selection has already collapsed it in the DOM; the state hears later.
+      var collapsed = selection.empty || document.getSelection().isCollapsed;
+      return flagged && (collapsed || (selection.from === flagged.from && selection.to === flagged.to)) ? flagged : null;
+    }
+    var error = selection.empty ? PM.spelling.errorAt(view.state, selection.head) : null;
+    if (!error || error.to !== selection.head) {
+      return null;
+    }
+    var rect = wordRect(error);
+    var over = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    return over ? error : null;
+  }
+
+  function menuItem(text, action) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'menu-item';
+    button.setAttribute('role', 'menuitem');
+    button.dir = 'auto';
+    button.textContent = text; // text from the host is only ever text
+    button.addEventListener('click', action);
+    return button;
+  }
+
+  function menuNote(text) {
+    var note = document.createElement('div');
+    note.className = 'menu-note';
+    note.textContent = text;
+    return note;
+  }
+
+  function showSuggestions(list, note) {
+    var items = list.map(function (text) {
+      return menuItem(text, function () { replaceWord(text); });
+    });
+    el.spellingItems.replaceChildren.apply(el.spellingItems, items.length ? items : [menuNote(note)]);
+  }
+
+  function openSpellingMenu(error) {
+    view.dispatch(view.state.tr.setSelection(PM.TextSelection.create(view.state.doc, error.from, error.to)));
+    spellMenu = { tabId: activeId, error: error, rect: wordRect(error), requestId: 0 };
+    el.spellingAdd.hidden = error.action === ACTION_DELETE;
+    if (error.action === ACTION_DELETE) {
+      el.spellingItems.replaceChildren(menuItem('Delete repeated word', function () { replaceWord(''); }));
+    } else {
+      showSuggestions(error.action === ACTION_REPLACE ? [error.replacement] : [], 'Looking for suggestions\u2026');
+      spellMenu.requestId = ++spellRequests;
+      post({ type: 'spellSuggest', tabId: activeId, requestId: spellMenu.requestId, language: error.language, word: error.word });
+    }
+    showPopover(el.popSpelling, spellMenu.rect, null);
+  }
+
+  function onSpellSuggestions(msg) {
+    if (openPopover !== el.popSpelling || !spellMenu || msg.tabId !== spellMenu.tabId || msg.requestId !== spellMenu.requestId) {
+      return;
+    }
+    var list = PM.spelling.suggestions(msg.suggestions);
+    var first = spellMenu.error.replacement;
+    if (first) {
+      list = [first].concat(list.filter(function (text) { return text !== first; })).slice(0, 8);
+    }
+    showSuggestions(list, 'No suggestions');
+    placePopover(el.popSpelling, spellMenu.rect);
+  }
+
+  function replaceWord(text) {
+    var tr = view && spellMenu ? PM.spelling.replace(view.state, spellMenu.error, text) : null;
+    if (tr) {
+      view.dispatch(tr);
+    }
+    closePopover(true);
+  }
+
+  // The host's checkers are shared, so the word is settled for every tab, not only this one.
+  function forgetWord(type) {
+    if (!spellMenu) {
+      return;
+    }
+    var word = spellMenu.error.word;
+    var language = spellMenu.error.language;
+    post({ type: type, tabId: spellMenu.tabId, language: language, word: word });
+    entries.forEach(function (entry) {
+      proofOn(entry, function (state) { return PM.spelling.clearWord(state, word, language); });
+    });
     closePopover(true);
   }
 
@@ -885,6 +1061,13 @@
     }
   }
 
+  function onSpellResult(msg) {
+    var entry = entries.get(msg.tabId);
+    if (entry) {
+      proofOn(entry, function (state) { return PM.spelling.results(state, msg.requestId, msg.blocks); });
+    }
+  }
+
   function onHostMessage(msg) {
     switch (msg.type) {
       case 'edit': onEdit(msg); break;
@@ -895,6 +1078,8 @@
       case 'documentRenamed': onDocumentRenamed(msg); break;
       case 'externalChange': onExternalChange(msg); break;
       case 'imagePicked': onImagePicked(msg); break;
+      case 'spellResult': onSpellResult(msg); break;
+      case 'spellSuggestions': onSpellSuggestions(msg); break;
     }
   }
 
@@ -995,9 +1180,19 @@
     bind('pop-image-apply', applyImage);
     bind('pop-image-browse', currentTab('pickImage'));
     bind('pop-table-apply', applyTable);
+    bind('pop-spelling-ignore', function () { forgetWord('spellIgnore'); });
+    bind('pop-spelling-add', function () { forgetWord('spellAdd'); });
     [el.linkText, el.linkHref, el.linkTitle].forEach(function (i) { onEnterKey(i, applyLink); });
     [el.imageSrc, el.imageAlt, el.imageTitle].forEach(function (i) { onEnterKey(i, applyImage); });
     [el.tableRows, el.tableCols].forEach(function (i) { onEnterKey(i, applyTable); });
+
+    el.editor.addEventListener('contextmenu', function (e) {
+      var error = view ? spellingErrorFor(e) : null;
+      if (error) {
+        e.preventDefault();
+        openSpellingMenu(error);
+      }
+    });
 
     document.addEventListener('mousedown', function (e) {
       if (openPopover && !openPopover.contains(e.target)) {
