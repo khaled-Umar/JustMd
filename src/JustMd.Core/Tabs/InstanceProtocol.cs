@@ -25,6 +25,10 @@ namespace JustMd.Core.Tabs
         public static string MutexName(string userId, int sessionId) =>
             @"Local\JustMd.Instance." + Sanitize(userId) + "." + sessionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+        /// <summary>The mutex a running 1.0.0 process holds. Version 1.0.0 shipped as JustMdViewer.</summary>
+        public static string LegacyMutexName(string userId, int sessionId) =>
+            @"Local\JustMdViewer.Instance." + Sanitize(userId) + "." + sessionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
         public static string PipeName(string userId, int sessionId) =>
             "JustMd.Instance." + Sanitize(userId) + "." + sessionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 

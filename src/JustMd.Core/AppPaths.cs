@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading;
 
 namespace JustMd.Core
 {
@@ -8,8 +7,12 @@ namespace JustMd.Core
     public static class AppPaths
     {
         private const string SettingsFileName = "settings.json";
-        private const int LegacyMoveAttempts = 6;
-        private const int LegacyMoveRetryDelayMilliseconds = 500;
+
+        /// <summary>
+        /// Empty file in the new data folder: settings.json has been taken over from the 1.0.0 folder, so that
+        /// folder may be deleted and the new settings win from now on.
+        /// </summary>
+        internal const string MigrationMarkerFileName = "migrated-from-JustMdViewer";
 
         /// <summary><c>%LOCALAPPDATA%\JustMd</c>.</summary>
         public static string DataDirectory =>
@@ -23,72 +26,85 @@ namespace JustMd.Core
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JustMdViewer");
 
         /// <summary>
-        /// Moves the 1.0.0 data folder to <see cref="DataDirectory"/>, or removes what a locked move left behind
-        /// on an earlier start. Waits about 2.5 s at most, and only while the old folder is locked. Never throws.
+        /// Moves the 1.0.0 data folder to <see cref="DataDirectory"/> or, when it cannot be moved, copies its
+        /// settings and removes the rest once nothing holds it. Whatever fails is retried on the next start;
+        /// this never waits and never throws.
         /// </summary>
-        public static void MigrateLegacyDataDirectory() =>
-            MigrateLegacyDataDirectory(LegacyDataDirectory, DataDirectory, LegacyMoveAttempts, () => Thread.Sleep(LegacyMoveRetryDelayMilliseconds));
-
-        internal static void MigrateLegacyDataDirectory(string legacyDirectory, string dataDirectory, int moveAttempts, Action waitBetweenAttempts)
+        public static void MigrateLegacyDataDirectory()
         {
-            if (!Directory.Exists(legacyDirectory))
+            if (string.IsNullOrEmpty(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)))
             {
                 return;
             }
 
-            if (Directory.Exists(dataDirectory))
+            MigrateLegacyDataDirectory(LegacyDataDirectory, DataDirectory);
+        }
+
+        internal static void MigrateLegacyDataDirectory(string legacyDirectory, string dataDirectory)
+        {
+            if (!Path.IsPathFullyQualified(legacyDirectory) || !Path.IsPathFullyQualified(dataDirectory)
+                || !Directory.Exists(legacyDirectory))
             {
-                DeleteLeftoverLegacyDirectory(legacyDirectory, dataDirectory);
                 return;
             }
 
-            for (int attempt = 1; attempt <= moveAttempts; attempt++)
-            {
-                try
-                {
-                    Directory.Move(legacyDirectory, dataDirectory);
-                    return;
-                }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-                {
-                    // Something holds the old folder open, often only for a moment after 1.0.0 closes.
-                }
-
-                if (attempt < moveAttempts)
-                {
-                    waitBetweenAttempts();
-                }
-            }
-
+            string marker = Path.Combine(dataDirectory, MigrationMarkerFileName);
             try
             {
-                // Still held: fall back to copying what matters. A later start removes the leftover.
-                Directory.CreateDirectory(dataDirectory);
+                if (!File.Exists(marker))
+                {
+                    if (!TryMoveDirectory(legacyDirectory, dataDirectory))
+                    {
+                        CopyLegacySettings(legacyDirectory, dataDirectory);
+                    }
 
-                // settings.json also holds the session (AppSettings.Session), so it is the only file needed.
-                File.Copy(Path.Combine(legacyDirectory, SettingsFileName), Path.Combine(dataDirectory, SettingsFileName), overwrite: false);
+                    File.WriteAllBytes(marker, Array.Empty<byte>());
+                }
+
+                // After a move the old folder is already gone.
+                if (Directory.Exists(legacyDirectory))
+                {
+                    Directory.Delete(legacyDirectory, recursive: true);
+                }
+
+                File.Delete(marker);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                // Best effort: the app starts with defaults.
+                // Nothing is lost: without the marker the next start copies settings.json again, with it
+                // the next start only finishes the cleanup.
             }
         }
 
-        private static void DeleteLeftoverLegacyDirectory(string legacyDirectory, string dataDirectory)
+        private static bool TryMoveDirectory(string legacyDirectory, string dataDirectory)
         {
-            // Without settings.json in the new folder, the old one may still hold the only copy.
-            if (!File.Exists(Path.Combine(dataDirectory, SettingsFileName)))
+            if (Directory.Exists(dataDirectory))
             {
-                return;
+                return false;
             }
 
             try
             {
-                Directory.Delete(legacyDirectory, recursive: true);
+                Directory.Move(legacyDirectory, dataDirectory);
+                return true;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                // Best effort: the next start tries again.
+                // Something holds the old folder open.
+                return false;
+            }
+        }
+
+        private static void CopyLegacySettings(string legacyDirectory, string dataDirectory)
+        {
+            Directory.CreateDirectory(dataDirectory);
+
+            // settings.json also holds the session (AppSettings.Session), so it is the only file needed.
+            // It overwrites what the new folder has: until the marker exists those are only defaults.
+            string legacySettings = Path.Combine(legacyDirectory, SettingsFileName);
+            if (File.Exists(legacySettings))
+            {
+                File.Copy(legacySettings, Path.Combine(dataDirectory, SettingsFileName), overwrite: true);
             }
         }
     }

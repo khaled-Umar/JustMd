@@ -44,6 +44,31 @@ namespace JustMd
             return instance;
         }
 
+        /// <summary>True while a 1.0.0 process (which shipped as JustMdViewer) runs in this user's session.</summary>
+        public static bool IsLegacyInstanceRunning()
+        {
+            string user = WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
+            int session = Process.GetCurrentProcess().SessionId;
+            try
+            {
+                if (Mutex.TryOpenExisting(InstanceProtocol.LegacyMutexName(user, session), out Mutex? mutex))
+                {
+                    mutex.Dispose();
+                    return true;
+                }
+
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true; // the mutex exists, we just may not open it
+            }
+            catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException || ex is IOException || ex is ArgumentException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>After a failed hand-off: take over if the previous primary has gone away.</summary>
         public void TryBecomePrimary()
         {

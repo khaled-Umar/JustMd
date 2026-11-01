@@ -34,8 +34,13 @@ namespace JustMd
                 instance.TryBecomePrimary();
             }
 
-            // Before MainForm, which reads settings and creates the WebView2 folder.
-            AppPaths.MigrateLegacyDataDirectory();
+            // Before MainForm, which reads settings and creates the WebView2 folder. While 1.0.0 still runs
+            // its settings may change and its folder is in use: this run uses the new folder, and the next
+            // start copies the 1.0.0 settings over whatever this run saved.
+            if (!SingleInstance.IsLegacyInstanceRunning())
+            {
+                AppPaths.MigrateLegacyDataDirectory();
+            }
 
             ApplicationConfiguration.Initialize();
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);

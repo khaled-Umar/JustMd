@@ -122,6 +122,7 @@ ContextMenuVerb=Open with {#AppName}
 MarkdownTypeName=Markdown Document
 AppDescription=A lightweight viewer for Markdown files.
 DefaultAppNote=Windows keeps the app you already use for Markdown files as the default, so it may ask once how you want to open them. To use {#AppName}, choose it and select "Always", or pick it in Settings > Apps > Default apps.
+LegacyDefaultNote=You opened Markdown files with JustMdViewer before. After this upgrade Windows may ask once how to open them: choose {#AppName} and select "Always".
 WebView2Missing={#AppName} needs the Microsoft Edge WebView2 Runtime to display documents, and it was not found on this computer.%n%nWindows 11 and most up-to-date Windows 10 PCs already include it. Do you want to open the Microsoft download page now?%n%nThe installation will finish either way.
 DotNetMissing={#AppName} needs the Microsoft .NET 10 Desktop Runtime (x64), and it was not found on this computer. The app will not start until it is installed.%n%nDo you want to open the .NET 10 download page now? Choose ".NET Desktop Runtime" for x64 (also on Arm-based PCs).%n%nThe installation will finish either way.
 
@@ -225,6 +226,8 @@ const
 var
   { True when another app already owns at least one Markdown extension. }
   OtherDefaultExists: Boolean;
+  { True when at least one Markdown extension still points at the 1.0.0 executable. }
+  LegacyDefaultExists: Boolean;
   { Runtime detection results, evaluated once by CheckRuntimes. }
   RuntimesChecked, DotNetPresent, WebView2Present: Boolean;
 
@@ -327,6 +330,11 @@ begin
   begin
     if RegWriteStringValue(HKA, 'Software\Classes\' + Ext, '', ProgId) then
       Log('Set default handler of ' + Ext + ' to ' + ProgId + ' (it had none).');
+  end
+  else if CompareText(Handler, 'Applications\' + LegacyExeName) = 0 then
+  begin
+    Log(Ext + ' is handled by the 1.0.0 executable; Windows may ask once how to open it.');
+    LegacyDefaultExists := True;
   end
   else if (CompareText(Handler, ProgId) <> 0) and (CompareText(Handler, 'Applications\{#AppExeName}') <> 0) then
   begin
@@ -438,15 +446,19 @@ begin
   end;
 end;
 
-{ Adds a short note to the finish page when Windows will keep another default app. }
+{ Adds a short note to the finish page when Windows will keep another default app,
+  or may ask how to open files that 1.0.0 used to open. }
 procedure CurPageChanged(CurPageID: Integer);
 var
   Delta: Integer;
 begin
-  if (CurPageID <> wpFinished) or not OtherDefaultExists then
+  if (CurPageID <> wpFinished) or not (OtherDefaultExists or LegacyDefaultExists) then
     Exit;
 
-  WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + CustomMessage('DefaultAppNote');
+  if OtherDefaultExists then
+    WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + CustomMessage('DefaultAppNote');
+  if LegacyDefaultExists then
+    WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + CustomMessage('LegacyDefaultNote');
   Delta := WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);
   WizardForm.RunList.Top := WizardForm.RunList.Top + Delta;
   WizardForm.YesRadio.Top := WizardForm.YesRadio.Top + Delta;
