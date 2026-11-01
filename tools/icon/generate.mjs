@@ -1,12 +1,12 @@
-// Regenerates every JustMdViewer brand asset from the geometry defined in this file.
+// Regenerates every JustMd brand asset from the geometry defined in this file.
 //
 //   cd tools/icon && npm install && npm run build
 //
 // Outputs (paths relative to the repo root):
 //   assets/logo.svg                    full app mark
-//   assets/logo-wordmark.svg           mark + "JustMdViewer", for light backgrounds
-//   assets/logo-wordmark-dark.svg      mark + "JustMdViewer", for dark backgrounds
-//   assets/icon/JustMdViewer.ico       16, 20, 24, 32, 40, 48, 64, 128, 256
+//   assets/logo-wordmark.svg           mark + "JustMd", for light backgrounds
+//   assets/logo-wordmark-dark.svg      mark + "JustMd", for dark backgrounds
+//   assets/icon/JustMd.ico       16, 20, 24, 32, 40, 48, 64, 128, 256
 //   assets/icon/icon-256.png, icon-512.png
 //   docs/favicon.svg, docs/favicon.ico (16, 32, 48)
 //
@@ -70,7 +70,7 @@ function fullMarkBody(id = 'jmv') {
 }
 
 function fullMarkSvg() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="JustMdViewer">${fullMarkBody()}
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="JustMd">${fullMarkBody()}
 </svg>
 `;
 }
@@ -131,7 +131,7 @@ function svgForSize(size) {
 }
 
 // ---------------------------------------------------------------------------
-// Wordmark: mark + "JustMdViewer" set in Plus Jakarta Sans Bold (SIL OFL 1.1),
+// Wordmark: mark + "JustMd" set in Plus Jakarta Sans Bold (SIL OFL 1.1),
 // converted to outlines so the SVG renders identically everywhere.
 // "Md" takes the accent colour.
 // ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ async function wordmarkSvg(variant) {
 
   const ink = variant === 'dark' ? C.inkDark : C.inkLight;
   const accent = variant === 'dark' ? C.accentDark : C.accent;
-  const text = 'JustMdViewer';
+  const text = 'JustMd';
   const markSize = 64;
   const capHeight = 30; // px
   const fontSize = (capHeight / font.tables.os2.sCapHeight) * font.unitsPerEm;
@@ -163,7 +163,7 @@ async function wordmarkSvg(variant) {
   });
   const width = Math.ceil(x + 2);
   const mark = `<svg x="0" y="0" width="${markSize}" height="${markSize}" viewBox="0 0 256 256">${fullMarkBody(`wm-${variant}`)}</svg>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${markSize}" width="${width * 2}" height="${markSize * 2}" role="img" aria-label="JustMdViewer">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${markSize}" width="${width * 2}" height="${markSize * 2}" role="img" aria-label="JustMd">
   ${mark}
   <path fill="${ink}" d="${runs.ink.join('')}"/>
   <path fill="${accent}" d="${runs.accent.join('')}"/>
@@ -200,7 +200,7 @@ async function main() {
   const previewIdx = process.argv.indexOf('--preview');
   const previewDir = previewIdx > -1 ? resolve(here, process.argv[previewIdx + 1] ?? 'preview') : null;
 
-  console.log('JustMdViewer brand assets');
+  console.log('JustMd brand assets');
   await out('assets/logo.svg', fullMarkSvg());
   await out('assets/logo-wordmark.svg', await wordmarkSvg('light'));
   await out('assets/logo-wordmark-dark.svg', await wordmarkSvg('dark'));
@@ -212,7 +212,7 @@ async function main() {
   }
 
   const icoFrames = async (sizes) => Promise.all(sizes.map(async (s) => ({ size: s, png: frames.get(s), ...(await rgba(frames.get(s))) })));
-  await out('assets/icon/JustMdViewer.ico', encodeIco(await icoFrames(ICO_SIZES)));
+  await out('assets/icon/JustMd.ico', encodeIco(await icoFrames(ICO_SIZES)));
   await out('docs/favicon.ico', encodeIco(await icoFrames(FAVICON_SIZES)));
   await out('assets/icon/icon-256.png', frames.get(256));
   await out('assets/icon/icon-512.png', await renderPng(fullMarkSvg(), 512));

@@ -1,13 +1,13 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Builds, tests, publishes and packages JustMdViewer into a Windows installer.
+    Builds, tests, publishes and packages JustMd into a Windows installer.
 
 .DESCRIPTION
     1. Cleans the artifacts/ folder.
     2. Runs the unit tests (unless -SkipTests).
-    3. Publishes src/JustMdViewer to artifacts/publish.
-    4. Compiles installer/JustMdViewer.iss with Inno Setup 6 into artifacts/installer
+    3. Publishes src/JustMd to artifacts/publish.
+    4. Compiles installer/JustMd.iss with Inno Setup 6 into artifacts/installer
        (unless -SkipInstaller) and writes a .sha256 checksum file next to it.
 
 .PARAMETER Configuration
@@ -44,9 +44,9 @@ $RepoRoot      = $PSScriptRoot
 $ArtifactsDir  = Join-Path $RepoRoot 'artifacts'
 $PublishDir    = Join-Path $ArtifactsDir 'publish'
 $InstallerDir  = Join-Path $ArtifactsDir 'installer'
-$AppProject    = Join-Path $RepoRoot 'src/JustMdViewer/JustMdViewer.csproj'
-$Solution      = Join-Path $RepoRoot 'JustMdViewer.sln'
-$InstallerIss  = Join-Path $RepoRoot 'installer/JustMdViewer.iss'
+$AppProject    = Join-Path $RepoRoot 'src/JustMd/JustMd.csproj'
+$Solution      = Join-Path $RepoRoot 'JustMd.sln'
+$InstallerIss  = Join-Path $RepoRoot 'installer/JustMd.iss'
 $PropsFile     = Join-Path $RepoRoot 'Directory.Build.props'
 
 function Write-Step([string] $Message) {
@@ -100,7 +100,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?([-+][0-9A-Za-z.+-]+)?$') {
     throw "Invalid version '$Version'. Expected something like 1.2.3 or 1.2.3-beta.1."
 }
 
-Write-Host "JustMdViewer build - version $Version, configuration $Configuration"
+Write-Host "JustMd build - version $Version, configuration $Configuration"
 
 # Find Inno Setup up front so a missing compiler fails before a long build.
 $Iscc = $null
@@ -142,7 +142,7 @@ if (-not (Test-Path $AppProject)) { throw "Application project not found: $AppPr
 Invoke-Native 'dotnet' @('publish', $AppProject, '-c', $Configuration, '-r', 'win-x64', '--self-contained', 'false',
     '-o', $PublishDir, "-p:Version=$Version", '--nologo')
 
-$exe = Join-Path $PublishDir 'JustMdViewer.exe'
+$exe = Join-Path $PublishDir 'JustMd.exe'
 if (-not (Test-Path $exe)) { throw "Publish did not produce $exe." }
 
 # --- Installer -----------------------------------------------------------------------------
@@ -161,7 +161,7 @@ Invoke-Native $Iscc @(
     $InstallerIss
 )
 
-$installer = Join-Path $InstallerDir "JustMdViewer-Setup-$Version.exe"
+$installer = Join-Path $InstallerDir "JustMd-Setup-$Version.exe"
 if (-not (Test-Path $installer)) { throw "Installer was not produced at $installer." }
 
 $file = Get-Item $installer

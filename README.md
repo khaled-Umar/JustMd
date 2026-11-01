@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-wordmark-dark.svg">
-    <img src="assets/logo-wordmark.svg" alt="JustMdViewer" width="360">
+    <img src="assets/logo-wordmark.svg" alt="JustMd" width="223">
   </picture>
 </p>
 
@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/khaled-Umar/JustMdViewer/releases/latest">Download</a> ·
-  <a href="https://khaled-umar.github.io/JustMdViewer/">Website</a> ·
+  <a href="https://github.com/khaled-Umar/JustMd/releases/latest">Download</a> ·
+  <a href="https://khaled-umar.github.io/JustMd/">Website</a> ·
   <a href="LICENSE">MIT License</a>
 </p>
 
@@ -32,14 +32,14 @@
 
 ## Install
 
-1. Download `JustMdViewer-Setup-<version>.exe` (2.8 MB) from the [latest release](https://github.com/khaled-Umar/JustMdViewer/releases/latest).
+1. Download `JustMd-Setup-<version>.exe` (2.8 MB) from the [latest release](https://github.com/khaled-Umar/JustMd/releases/latest).
 2. Run it. It installs for the current user by default; you can choose an all-users install instead. The installer is not code-signed yet, so **Windows SmartScreen may warn you**: choose *More info*, then *Run anyway*.
 3. Pick the options:
-   - **Associate Markdown files (.md, .markdown) with JustMdViewer** (ticked)
-   - **Add 'Open with JustMdViewer' to the right-click menu of Markdown files** (ticked). On Windows 11 the entry appears under **Show more options**.
+   - **Associate Markdown files (.md, .markdown) with JustMd** (ticked)
+   - **Add 'Open with JustMd' to the right-click menu of Markdown files** (ticked). On Windows 11 the entry appears under **Show more options**.
    - **Create a desktop shortcut** (not ticked)
 
-If another app already opens Markdown files, Windows keeps it as the default and may ask you once which app to use. Choose JustMdViewer and *Always*, or set it in Settings > Apps > Default apps.
+If another app already opens Markdown files, Windows keeps it as the default and may ask you once which app to use. Choose JustMd and *Always*, or set it in Settings > Apps > Default apps.
 
 **Requirements**
 
@@ -71,7 +71,7 @@ Open files with the **+** button or <kbd>Ctrl</kbd>+<kbd>O</kbd>, by double-clic
 Requires Windows and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```powershell
-dotnet build JustMdViewer.sln -c Release
+dotnet build JustMd.sln -c Release
 dotnet test
 ```
 
@@ -81,15 +81,15 @@ To produce the full package, install [Inno Setup 6](https://jrsoftware.org/isinf
 pwsh ./build.ps1            # options: -Version 1.2.0, -SkipTests, -SkipInstaller
 ```
 
-It runs the tests, publishes the app to `artifacts/publish`, and writes `artifacts/installer/JustMdViewer-Setup-<version>.exe` with a `.sha256` checksum next to it.
+It runs the tests, publishes the app to `artifacts/publish`, and writes `artifacts/installer/JustMd-Setup-<version>.exe` with a `.sha256` checksum next to it.
 
 ## Project layout
 
 | Path | Contents |
 | --- | --- |
-| `src/JustMdViewer.Core` | Rendering, link classification, local-image URLs, settings and session, the tab model, the single-instance protocol |
-| `src/JustMdViewer` | The WinForms shell (window, WebView2 host, link dialog) and the `web/` viewer page |
-| `tests/JustMdViewer.Tests` | Unit tests (218) |
+| `src/JustMd.Core` | Rendering, link classification, local-image URLs, settings and session, the tab model, the single-instance protocol |
+| `src/JustMd` | The WinForms shell (window, WebView2 host, link dialog) and the `web/` viewer page |
+| `tests/JustMd.Tests` | Unit tests (228) |
 | `installer/` | Inno Setup script |
 | `assets/` | Logo, wordmark and app icon |
 | `tools/icon/` | Generator for everything in `assets/` plus the site favicons |

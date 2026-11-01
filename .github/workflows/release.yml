@@ -65,7 +65,7 @@ jobs:
           $releaseArgs = @(
             'release', 'create', $env:TAG, $env:INSTALLER, $env:CHECKSUM,
             '--repo', $env:GITHUB_REPOSITORY,
-            '--title', "JustMdViewer $env:VERSION",
+            '--title', "JustMd $env:VERSION",
             '--generate-notes',
             '--verify-tag'
           )
@@ -76,7 +76,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
-          name: JustMdViewer-Setup-${{ steps.version.outputs.version }}
+          name: JustMd-Setup-${{ steps.version.outputs.version }}
           path: |
             artifacts/installer/*.exe
             artifacts/installer/*.sha256
