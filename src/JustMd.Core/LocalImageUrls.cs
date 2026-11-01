@@ -37,6 +37,16 @@ namespace JustMd.Core
                 [".avif"] = "image/avif",
             };
 
+        /// <summary>File dialog filter for the extensions <see cref="IsImageExtension"/> accepts.</summary>
+        public static string DialogFilter
+        {
+            get
+            {
+                string patterns = string.Join(";", MimeTypes.Keys.Select(extension => "*" + extension));
+                return "Images (" + patterns + ")|" + patterns;
+            }
+        }
+
         public static bool IsImageExtension(string path) => GetMimeType(path) != null;
 
         /// <summary>Returns the MIME type for an allowed image extension, or null for anything else.</summary>

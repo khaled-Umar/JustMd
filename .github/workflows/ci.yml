@@ -41,6 +41,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed ($LASTEXITCODE)." }
           }
 
+      - name: Set up Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Test the editor bundle and check it is up to date
+        working-directory: tools/editor
+        run: npm ci && npm test && npm run build -- --check
+
       - name: Build, test, publish and compile installer
         run: ./build.ps1 -Configuration Release
 

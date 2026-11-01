@@ -212,6 +212,7 @@ namespace JustMd
         {
             if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited)
             {
+                _pageReady = false;
                 BeginInvoke(() =>
                 {
                     MessageBox.Show(this, "The viewer component stopped unexpectedly. Please restart JustMd.",
@@ -229,11 +230,12 @@ namespace JustMd
             }
         }
 
-        // ---------- context menu: Copy / Select all only ----------
+        // ---------- context menu: Copy / Select all, plus editing commands in the editor ----------
 
         private void OnContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
         {
             IList<CoreWebView2ContextMenuItem> items = e.MenuItems;
+            bool editable = e.ContextMenuTarget.IsEditable;
             bool hasSelectAll = false;
             for (int i = items.Count - 1; i >= 0; i--)
             {
@@ -242,13 +244,13 @@ namespace JustMd
                 {
                     hasSelectAll = true;
                 }
-                else if (name != "copy")
+                else if (name != "copy" && !(editable && name is "cut" or "paste" or "undo" or "redo"))
                 {
                     items.RemoveAt(i);
                 }
             }
 
-            if (!hasSelectAll && Core != null && !e.ContextMenuTarget.IsEditable)
+            if (!hasSelectAll && Core != null && !editable)
             {
                 CoreWebView2ContextMenuItem selectAll = Core.Environment.CreateContextMenuItem(
                     "Select all", null, CoreWebView2ContextMenuItemKind.Command);
@@ -311,10 +313,16 @@ namespace JustMd
             {
                 case WebMessageType.Ready:
                     _pageReady = true;
+                    bool editsLost = ResetEditorsForNewPage();
                     PostTheme();
                     Post(new HostMessage { Type = "outline", Visible = _settings.OutlineVisible, Width = _settings.OutlineWidth });
                     PostTabs();
                     ShowActiveTab(null);
+                    if (editsLost)
+                    {
+                        ShowEditError("The viewer component restarted and unsaved changes were lost.");
+                    }
+
                     break;
 
                 case WebMessageType.Open:
@@ -363,9 +371,75 @@ namespace JustMd
 
                 case WebMessageType.Drop:
                     List<string> files = droppedPaths.Where(File.Exists).ToList();
+                    if (_tabs.Active is DocumentTab { IsEditing: true } dropTarget)
+                    {
+                        foreach (string image in files.Where(LocalImageUrls.IsImageExtension))
+                        {
+                            PostImagePicked(dropTarget, image);
+                        }
+
+                        files.RemoveAll(LocalImageUrls.IsImageExtension);
+                    }
+
                     if (files.Count > 0)
                     {
                         OpenFiles(files);
+                    }
+
+                    break;
+
+                case WebMessageType.NewFile:
+                    NewFile();
+                    break;
+
+                case WebMessageType.EnterEdit:
+                    if (_tabs.FindById(message.TabId) is DocumentTab toEdit)
+                    {
+                        RunEditFlow(() => EnterEditAsync(toEdit));
+                    }
+
+                    break;
+
+                case WebMessageType.ExitEdit:
+                    if (_tabs.FindById(message.TabId) is DocumentTab toExit)
+                    {
+                        RunEditFlow(() => ExitEditAsync(toExit));
+                    }
+
+                    break;
+
+                case WebMessageType.Save:
+                    SaveTab(_tabs.FindById(message.TabId));
+                    break;
+
+                case WebMessageType.SaveAs:
+                    SaveTabAs(_tabs.FindById(message.TabId));
+                    break;
+
+                case WebMessageType.EditorDirty:
+                    if (_tabs.FindById(message.TabId) is DocumentTab { IsEditing: true } changed)
+                    {
+                        SetDirty(changed, message.Dirty);
+                    }
+
+                    break;
+
+                case WebMessageType.EditorContent:
+                    CompleteContentRequest(message);
+                    break;
+
+                case WebMessageType.PickImage:
+                    if (_tabs.FindById(message.TabId) is DocumentTab { IsEditing: true } picking)
+                    {
+                        ShowImageDialog(picking);
+                    }
+
+                    break;
+
+                case WebMessageType.ReloadFromDisk:
+                    if (_tabs.FindById(message.TabId) is DocumentTab toReload)
+                    {
+                        RunEditFlow(() => ReloadFromDiskAsync(toReload));
                     }
 
                     break;

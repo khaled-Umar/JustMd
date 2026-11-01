@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JustMd: a Markdown viewer for Windows that only views</title>
-<meta name="description" content="JustMd is a small, free, open-source Markdown viewer for Windows 10 and 11. Tabs, GitHub-style rendering, safe links, light and dark themes, auto-reload. No editor, no telemetry.">
+<title>JustMd: a Markdown viewer for Windows, with an edit mode you switch on yourself</title>
+<meta name="description" content="JustMd is a small, free, open-source Markdown viewer for Windows 10 and 11. Tabs, GitHub-style rendering, safe links, light and dark themes, auto-reload, and an edit mode you switch on yourself. No telemetry.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F4F7FC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0A1020" media="(prefers-color-scheme: dark)">
 <meta property="og:title" content="JustMd">
-<meta property="og:description" content="A Markdown viewer for Windows that only views.">
+<meta property="og:description" content="A Markdown viewer for Windows, with an edit mode you switch on yourself.">
 <meta property="og:type" content="website">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
@@ -486,8 +486,8 @@
   <div class="wrap">
 
     <section class="hero doc" aria-labelledby="hero-title">
-      <h1 id="hero-title"><span class="src" aria-hidden="true">#</span>A Markdown viewer that <em>only views.</em></h1>
-      <p class="pitch">JustMd opens <code>.md</code> files in tabs, in a clean, GitHub-style reading view on Windows. No editor, no account, no telemetry. The installer is 2.8&nbsp;MB.</p>
+      <h1 id="hero-title"><span class="src" aria-hidden="true">#</span>A Markdown viewer first. <em>Edits when you ask.</em></h1>
+      <p class="pitch">JustMd opens <code>.md</code> files in tabs, in a clean, GitHub-style reading view on Windows. Nothing is editable until you press <kbd>F2</kbd>. No account, no telemetry. The installer is 2.8&nbsp;MB.</p>
       <div class="actions">
         <a class="btn btn-primary" href="https://github.com/khaled-Umar/JustMd/releases/latest">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
@@ -498,7 +498,7 @@
           View on GitHub
         </a>
       </div>
-      <p class="meta"><span>v1.1.0</span><span>Windows 10 and 11</span><span>2.8 MB installer</span><span>MIT licensed</span></p>
+      <p class="meta"><span>v1.2.0</span><span>Windows 10 and 11</span><span>2.8 MB installer</span><span>MIT licensed</span></p>
     </section>
 
     <!-- Illustration of the app window. Not a screenshot. -->
@@ -598,6 +598,18 @@
         <li><span class="k"><kbd>Ctrl+F</kbd></span><div><strong>Find</strong><p>Search the text of the document.</p></div></li>
         <li><span class="k"><kbd>Ctrl&nbsp;+/−/0</kbd></span><div><strong>Zoom</strong><p>Make the text bigger or smaller, or reset it.</p></div></li>
         <li><span class="k"><kbd>Ctrl+P</kbd></span><div><strong>Print</strong><p>Print the document as it is rendered, or save it as PDF.</p></div></li>
+      </ul>
+
+      <h3><span class="src" aria-hidden="true">###</span>Edits when you ask</h3>
+      <ul class="keyed">
+        <li><span class="k"><kbd>F2</kbd></span><div><strong>Edit mode</strong><p>Edit the document in place, in the same look, with a toolbar for formatting. Opening a file never starts it; you switch it on yourself.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+N</kbd></span><div><strong>New file</strong><p>An untitled tab, ready for typing. This is the one place edit mode starts on its own. The first save asks where to put the file.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+S</kbd></span><div><strong>Saves that stay small</strong><p>Blocks you did not touch stay byte-for-byte as written, and the line endings, encoding and front matter are kept.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+Shift+1</kbd></span><div><strong>Headings</strong><p><kbd>Ctrl+Shift+1</kbd>…<kbd>6</kbd> sets the level, and <kbd>Ctrl+Shift+P</kbd> goes back to a paragraph.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+Shift+T</kbd></span><div><strong>Tables and images</strong><p>Insert a table from the toolbar and edit it in place. Dropped image files become relative references.</p></div></li>
+        <li><span class="k"><code>&lt;div dir="rtl"&gt;</code></span><div><strong>Right-to-left</strong><p>One toggle marks the document as right-to-left, for both editing and reading. The file stays plain Markdown.</p></div></li>
+        <li><span class="k"><code>[text](url)</code></span><div><strong>Links stay checked</strong><p>Links do not navigate while you edit. Opening one goes through the same warning as always.</p></div></li>
+        <li><span class="k"><code>Changed on disk</code></span><div><strong>No silent overwrites</strong><p>If the file changes while you have unsaved edits, you choose which version stays.</p></div></li>
       </ul>
     </section>
 

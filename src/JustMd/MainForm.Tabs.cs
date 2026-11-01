@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using JustMd.Core;
@@ -75,13 +76,18 @@ namespace JustMd
             DocumentTab? tab = _tabs.Open(path, out alreadyOpen);
             if (tab != null && !alreadyOpen)
             {
-                int id = tab.Id;
-                var watcher = new DocumentWatcher(tab.Path, this);
-                watcher.Changed += (_, _) => OnTabFileChanged(id);
-                tab.Watcher = watcher;
+                AttachWatcher(tab);
             }
 
             return tab;
+        }
+
+        private void AttachWatcher(DocumentTab tab)
+        {
+            int id = tab.Id;
+            var watcher = new DocumentWatcher(tab.Path!, this);
+            watcher.Changed += (_, _) => OnTabFileChanged(id);
+            tab.Watcher = watcher;
         }
 
         /// <summary>
@@ -151,7 +157,11 @@ namespace JustMd
                 return; // "ready" will show it
             }
 
-            if (tab.CachedHtml != null)
+            if (tab.IsEditing)
+            {
+                PostEdit(tab);
+            }
+            else if (tab.CachedHtml != null)
             {
                 PostRender(tab, preserveScroll: false, fragment);
             }
@@ -168,9 +178,20 @@ namespace JustMd
                 return;
             }
 
+            if (tab.IsEditing)
+            {
+                RunEditFlow(() => CloseEditingTabAsync(tab));
+            }
+            else
+            {
+                RemoveTab(tab);
+            }
+        }
+
+        private void RemoveTab(DocumentTab tab)
+        {
             bool wasActive = ReferenceEquals(tab, _tabs.Active);
-            tab.Watcher?.Dispose();
-            tab.Watcher = null;
+            ReleaseTab(tab);
             DocumentTab? next = _tabs.Close(tab);
 
             UpdateTitle();
@@ -189,13 +210,23 @@ namespace JustMd
 
         private void UpdateTitle()
         {
-            Text = _tabs.Active == null ? Program.AppName : _tabs.Active.FileName + " — " + Program.AppName;
+            DocumentTab? tab = _tabs.Active;
+            Text = tab == null ? Program.AppName : (tab.IsDirty ? "*" : string.Empty) + tab.DisplayName + " — " + Program.AppName;
         }
 
         private void PostTabs() => Post(new HostMessage
         {
             Type = "tabs",
-            Tabs = _tabs.Tabs.Select(t => new TabInfo { Id = t.Id, Name = t.FileName, Path = t.Path, Updated = t.Updated }).ToList(),
+            Tabs = _tabs.Tabs.Select(t => new TabInfo
+            {
+                Id = t.Id,
+                Name = t.DisplayName,
+                Path = t.Path ?? string.Empty,
+                Updated = t.Updated,
+                Dirty = t.IsDirty,
+                Editing = t.IsEditing,
+                Untitled = t.IsUntitled,
+            }).ToList(),
             ActiveTabId = _tabs.Active?.Id ?? 0,
         });
 
@@ -203,11 +234,7 @@ namespace JustMd
 
         private void CaptureSession()
         {
-            _settings.Session = new SessionState
-            {
-                Tabs = _tabs.Tabs.Select(t => new SessionTab { Path = t.Path, ScrollTop = Math.Round(t.View?.ScrollTop ?? 0) }).ToList(),
-                ActiveIndex = _tabs.ActiveIndex,
-            };
+            _settings.Session = SessionState.From(_tabs.Tabs, _tabs.Active);
         }
 
         /// <summary>Saved (debounced) on every change so a crash doesn't lose the open tabs.</summary>
@@ -221,7 +248,7 @@ namespace JustMd
 
         private void ReloadActiveTab()
         {
-            if (_tabs.Active != null)
+            if (_tabs.Active != null && !_tabs.Active.IsEditing)
             {
                 _ = RenderTabAsync(_tabs.Active, RenderMode.Reload, null);
             }
@@ -235,7 +262,11 @@ namespace JustMd
                 return;
             }
 
-            if (ReferenceEquals(tab, _tabs.Active))
+            if (tab.IsEditing)
+            {
+                _ = OnEditingFileChangedAsync(tab);
+            }
+            else if (ReferenceEquals(tab, _tabs.Active))
             {
                 _ = RenderTabAsync(tab, RenderMode.AutoReload, null);
             }
@@ -246,8 +277,8 @@ namespace JustMd
         }
 
         /// <summary>
-        /// Reads and renders a tab's file off the UI thread and updates its cache. Never throws:
-        /// failures end in the tab's error state, or are ignored for silent refreshes.
+        /// Reads and renders a tab's file (an untitled tab's text) off the UI thread and updates its
+        /// cache. Never throws: failures end in the tab's error state, or are ignored for silent refreshes.
         /// </summary>
         private async Task RenderTabAsync(DocumentTab tab, RenderMode mode, string? fragment)
         {
@@ -257,8 +288,10 @@ namespace JustMd
             }
 
             int version = ++tab.RenderVersion;
-            string path = tab.Path;
-            (string? html, string? error) = await ReadAndRenderAsync(path);
+            bool tooLarge = tab.Path is string sizedPath && await Task.Run(() => IsTooLargeToEdit(sizedPath));
+            (string? html, string? error) = tab.Path is string path
+                ? await ReadAndRenderAsync(path)
+                : await RenderTextAsync(tab.Document?.Body ?? string.Empty, null);
 
             if (version != tab.RenderVersion || !_tabs.Tabs.Contains(tab) || IsDisposed)
             {
@@ -283,7 +316,7 @@ namespace JustMd
                         Type = "error",
                         TabId = tab.Id,
                         Message = tab.ErrorMessage,
-                        FileName = tab.FileName,
+                        FileName = tab.DisplayName,
                         FilePath = tab.Path,
                     });
                 }
@@ -294,6 +327,7 @@ namespace JustMd
             bool changed = !string.Equals(tab.CachedHtml, html, StringComparison.Ordinal);
             tab.CachedHtml = html;
             tab.ErrorMessage = null;
+            tab.TooLargeToEdit = tooLarge;
 
             if (!isActive)
             {
@@ -315,7 +349,7 @@ namespace JustMd
             {
                 if (tab.ErrorMessage != null)
                 {
-                    Post(new HostMessage { Type = "error", TabId = tab.Id, Message = tab.ErrorMessage, FileName = tab.FileName, FilePath = tab.Path });
+                    Post(new HostMessage { Type = "error", TabId = tab.Id, Message = tab.ErrorMessage, FileName = tab.DisplayName, FilePath = tab.Path });
                 }
 
                 return;
@@ -328,44 +362,44 @@ namespace JustMd
                 Type = "render",
                 TabId = tab.Id,
                 Html = tab.CachedHtml,
-                FileName = tab.FileName,
+                FileName = tab.DisplayName,
                 FilePath = tab.Path,
-                ImageBase = LocalImageUrls.DirectoryBaseUrl(Path.GetDirectoryName(tab.Path) ?? tab.Path),
+                ImageBase = ImageBaseFor(tab),
                 PreserveScroll = preserveScroll,
                 Fragment = fragment,
                 RestoreView = restore,
+                TooLarge = tab.TooLargeToEdit,
                 ScrollTop = restore ? view!.ScrollTop : 0,
                 OutlineScrollTop = restore ? view!.OutlineScrollTop : 0,
                 Collapsed = restore ? view!.CollapsedKeys : null,
             });
         }
 
-        private async Task<(string? Html, string? Error)> ReadAndRenderAsync(string path)
+        private static bool IsTooLargeToEdit(string path)
         {
             try
             {
-                string text;
-                try
-                {
-                    text = await Task.Run(() => ReadWithRetry(path));
-                }
-                catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
-                {
-                    return (null, "The file was not found. It may have been moved, renamed or deleted.");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    return (null, "Access to the file was denied.");
-                }
-                catch (Exception ex) when (ex is IOException || ex is InvalidDataException)
-                {
-                    return (null, ex.Message);
-                }
-                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException)
-                {
-                    return (null, "The file path is not valid.");
-                }
+                return new FileInfo(path).Length > MaxEditableBytes;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+            {
+                return false;
+            }
+        }
 
+        private static string? ImageBaseFor(DocumentTab tab) =>
+            tab.Path == null ? null : LocalImageUrls.DirectoryBaseUrl(Path.GetDirectoryName(tab.Path) ?? tab.Path);
+
+        private async Task<(string? Html, string? Error)> ReadAndRenderAsync(string path)
+        {
+            (string? text, _, string? error) = await ReadDocumentAsync(path);
+            return text == null ? (null, error) : await RenderTextAsync(text, path);
+        }
+
+        private async Task<(string? Html, string? Error)> RenderTextAsync(string text, string? path)
+        {
+            try
+            {
                 return (await Task.Run(() => _renderer.RenderHtml(text, path)), null);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -374,14 +408,52 @@ namespace JustMd
             }
         }
 
+        /// <summary>Reads a file off the UI thread for viewing or editing. Never throws: failures come back as a message for the user.</summary>
+        private static async Task<(string? Text, Encoding? Encoding, string? Error)> ReadDocumentAsync(string path, long maxBytes = TextFileReader.MaxFileBytes)
+        {
+            try
+            {
+                return await Task.Run<(string?, Encoding?, string?)>(() =>
+                {
+                    if (new FileInfo(path).Length > maxBytes)
+                    {
+                        throw new InvalidDataException($"The file is larger than {maxBytes / (1024 * 1024)} MB.");
+                    }
+
+                    string text = ReadWithRetry(path, out Encoding encoding);
+                    return (text, encoding, null);
+                });
+            }
+            catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
+            {
+                return (null, null, "The file was not found. It may have been moved, renamed or deleted.");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return (null, null, "Access to the file was denied.");
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidDataException)
+            {
+                return (null, null, ex.Message);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException)
+            {
+                return (null, null, "The file path is not valid.");
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return (null, null, "The document could not be displayed: " + ex.Message);
+            }
+        }
+
         /// <summary>Editors briefly lock files while saving; retry a few times before giving up.</summary>
-        private static string ReadWithRetry(string path)
+        private static string ReadWithRetry(string path, out Encoding encoding)
         {
             for (int attempt = 0; ; attempt++)
             {
                 try
                 {
-                    return TextFileReader.ReadAllText(path);
+                    return TextFileReader.ReadAllText(path, out encoding);
                 }
                 catch (IOException ex) when (attempt < 3 && ex is not FileNotFoundException && ex is not DirectoryNotFoundException)
                 {

@@ -42,11 +42,44 @@ namespace JustMd.Core.Messaging
 
         /// <summary>View state of a tab (scroll, outline) reported by the page.</summary>
         TabState,
+
+        /// <summary>User asked for a new untitled tab.</summary>
+        NewFile,
+
+        /// <summary>User asked to edit a tab (<see cref="WebMessage.TabId"/>).</summary>
+        EnterEdit,
+
+        /// <summary>User asked to leave edit mode (Done or Esc).</summary>
+        ExitEdit,
+
+        /// <summary>User asked to save a tab.</summary>
+        Save,
+
+        /// <summary>User asked to save a tab under a new name.</summary>
+        SaveAs,
+
+        /// <summary>The editor's unsaved state changed (<see cref="WebMessage.Dirty"/>).</summary>
+        EditorDirty,
+
+        /// <summary>The answer to "requestContent" (<see cref="WebMessage.RequestId"/>, then <see cref="WebMessage.Markdown"/> and <see cref="WebMessage.Rtl"/>, or <see cref="WebMessage.Error"/>).</summary>
+        EditorContent,
+
+        /// <summary>User asked to browse for an image to insert.</summary>
+        PickImage,
+
+        /// <summary>User chose to discard their changes after the file changed on disk.</summary>
+        ReloadFromDisk,
     }
 
     /// <summary>A validated message from the viewer page.</summary>
     public sealed class WebMessage
     {
+        /// <summary>The document is over <see cref="WebMessageParser.MaxMarkdownLength"/>.</summary>
+        public const string ErrorTooLarge = "tooLarge";
+
+        /// <summary>The editor could not produce the Markdown.</summary>
+        public const string ErrorFailed = "failed";
+
         internal WebMessage(WebMessageType type)
         {
             Type = type;
@@ -68,6 +101,21 @@ namespace JustMd.Core.Messaging
 
         /// <summary>For <see cref="WebMessageType.TabState"/>.</summary>
         public TabViewState? View { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.EditorDirty"/>.</summary>
+        public bool Dirty { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>.</summary>
+        public bool Rtl { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>. Null when <see cref="Error"/> is set.</summary>
+        public string? Markdown { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>: why the page has no Markdown to hand over (<see cref="ErrorTooLarge"/> or <see cref="ErrorFailed"/>), else null.</summary>
+        public string? Error { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>.</summary>
+        public int RequestId { get; internal init; }
     }
 
     /// <summary>Parses and validates JSON messages posted by the viewer page.</summary>
@@ -75,6 +123,9 @@ namespace JustMd.Core.Messaging
     {
         /// <summary>Upper bound for clipboard text coming from a code block.</summary>
         public const int MaxCopyLength = 16 * 1024 * 1024;
+
+        /// <summary>Upper bound for a document coming from the editor, in characters.</summary>
+        public const int MaxMarkdownLength = 8 * 1024 * 1024;
 
         /// <summary>Returns the message, or null if the JSON is malformed, of an unknown type or fails validation.</summary>
         public static WebMessage? Parse(string? json)
@@ -120,6 +171,26 @@ namespace JustMd.Core.Messaging
                         : null;
                 case "tabState":
                     return ParseTabState(dto);
+                case "newFile":
+                    return new WebMessage(WebMessageType.NewFile);
+                case "enterEdit":
+                    return ParseTabCommand(dto, WebMessageType.EnterEdit);
+                case "exitEdit":
+                    return ParseTabCommand(dto, WebMessageType.ExitEdit);
+                case "save":
+                    return ParseTabCommand(dto, WebMessageType.Save);
+                case "saveAs":
+                    return ParseTabCommand(dto, WebMessageType.SaveAs);
+                case "pickImage":
+                    return ParseTabCommand(dto, WebMessageType.PickImage);
+                case "reloadFromDisk":
+                    return ParseTabCommand(dto, WebMessageType.ReloadFromDisk);
+                case "editorDirty":
+                    return dto.TabId is int dirtyId && dirtyId > 0 && dto.Dirty is bool dirty
+                        ? new WebMessage(WebMessageType.EditorDirty) { TabId = dirtyId, Dirty = dirty }
+                        : null;
+                case "editorContent":
+                    return ParseEditorContent(dto);
                 case "copy":
                     return dto.Text == null || dto.Text.Length > MaxCopyLength
                         ? null
@@ -135,6 +206,33 @@ namespace JustMd.Core.Messaging
 
         public const int MaxCollapsedKeys = 5000;
         public const int MaxCollapsedKeyLength = 4096;
+
+        private static WebMessage? ParseTabCommand(IncomingDto dto, WebMessageType type) =>
+            dto.TabId is int id && id > 0 ? new WebMessage(type) { TabId = id } : null;
+
+        private static WebMessage? ParseEditorContent(IncomingDto dto)
+        {
+            if (dto.TabId is not int id || id <= 0
+                || dto.RequestId is not int requestId || requestId <= 0)
+            {
+                return null;
+            }
+
+            if (dto.Error != null)
+            {
+                return dto.Error is WebMessage.ErrorTooLarge or WebMessage.ErrorFailed
+                    ? new WebMessage(WebMessageType.EditorContent) { TabId = id, RequestId = requestId, Error = dto.Error }
+                    : null;
+            }
+
+            if (dto.Rtl is not bool rtl
+                || dto.Markdown == null || dto.Markdown.Length > MaxMarkdownLength)
+            {
+                return null;
+            }
+
+            return new WebMessage(WebMessageType.EditorContent) { TabId = id, RequestId = requestId, Rtl = rtl, Markdown = dto.Markdown };
+        }
 
         private static WebMessage? ParseTabState(IncomingDto dto)
         {
@@ -194,6 +292,21 @@ namespace JustMd.Core.Messaging
 
             [JsonPropertyName("width")]
             public int? Width { get; set; }
+
+            [JsonPropertyName("dirty")]
+            public bool? Dirty { get; set; }
+
+            [JsonPropertyName("rtl")]
+            public bool? Rtl { get; set; }
+
+            [JsonPropertyName("markdown")]
+            public string? Markdown { get; set; }
+
+            [JsonPropertyName("requestId")]
+            public int? RequestId { get; set; }
+
+            [JsonPropertyName("error")]
+            public string? Error { get; set; }
         }
     }
 
@@ -206,7 +319,7 @@ namespace JustMd.Core.Messaging
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        /// <summary>render | welcome | error | tabs | theme | outline | toggleOutline | copied | scrollTo | selectAll | flushState.</summary>
+        /// <summary>render | welcome | error | tabs | theme | outline | toggleOutline | copied | scrollTo | selectAll | flushState | edit | exitEdit | editorCommand | requestContent | saved | documentRenamed | externalChange | imagePicked.</summary>
         public string Type { get; set; } = string.Empty;
 
         /// <summary>Rendered (unsanitised) document HTML for "render"; the page sanitises it.</summary>
@@ -246,6 +359,9 @@ namespace JustMd.Core.Messaging
         /// <summary>Apply <see cref="ScrollTop"/>, <see cref="OutlineScrollTop"/> and <see cref="Collapsed"/> exactly.</summary>
         public bool RestoreView { get; set; }
 
+        /// <summary>On "render": the file is above the editing size limit, so the edit button is disabled.</summary>
+        public bool TooLarge { get; set; }
+
         public double ScrollTop { get; set; }
 
         public double OutlineScrollTop { get; set; }
@@ -256,6 +372,33 @@ namespace JustMd.Core.Messaging
         public IReadOnlyList<TabInfo>? Tabs { get; set; }
 
         public int ActiveTabId { get; set; }
+
+        /// <summary>The tab's edit revision, for "edit" and "saved".</summary>
+        public int Revision { get; set; }
+
+        /// <summary>Document body for "edit".</summary>
+        public string? Markdown { get; set; }
+
+        /// <summary>The document is right-to-left, for "edit".</summary>
+        public bool Rtl { get; set; }
+
+        /// <summary>The tab has no file yet, for "edit".</summary>
+        public bool Untitled { get; set; }
+
+        /// <summary>Command name for "editorCommand".</summary>
+        public string? Command { get; set; }
+
+        /// <summary>Command argument for "editorCommand", such as the heading level.</summary>
+        public string? Arg { get; set; }
+
+        /// <summary>Id the page echoes in "editorContent", for "requestContent".</summary>
+        public int RequestId { get; set; }
+
+        /// <summary>Markdown image reference for "imagePicked".</summary>
+        public string? Src { get; set; }
+
+        /// <summary>Image alternative text for "imagePicked".</summary>
+        public string? Alt { get; set; }
 
         public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
     }
@@ -270,5 +413,11 @@ namespace JustMd.Core.Messaging
         public string Path { get; set; } = string.Empty;
 
         public bool Updated { get; set; }
+
+        public bool Dirty { get; set; }
+
+        public bool Editing { get; set; }
+
+        public bool Untitled { get; set; }
     }
 }

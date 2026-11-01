@@ -1,4 +1,6 @@
+using System.Text;
 using JustMd.Core;
+using JustMd.Core.Editing;
 
 namespace JustMd.Tests
 {
@@ -188,6 +190,92 @@ namespace JustMd.Tests
             string html = _renderer.RenderHtml("![x](a.png)", null);
 
             Assert.Contains("src=\"a.png\"", html);
+        }
+
+        [Fact]
+        public void Rtl_wrapper_renders_a_div_around_parsed_markdown()
+        {
+            string text = DocumentText.Parse("# Title\n\nBody\n", new UTF8Encoding(false)).With("# Title\n\nBody", true).Compose();
+
+            string html = _renderer.RenderHtml(text, null);
+
+            Assert.Matches("^<div dir=\"rtl\">\\s*<h1 [^>]*>Title</h1>\\s*<p>Body</p>\\s*</div>\\s*$", html);
+        }
+
+        [Fact]
+        public void Rtl_wrapper_after_front_matter_renders_the_same()
+        {
+            string text = DocumentText.Parse("---\nt: Secret\n---\n\n# Title\n", new UTF8Encoding(false)).With("# Title", true).Compose();
+
+            string html = _renderer.RenderHtml(text, null);
+
+            Assert.DoesNotContain("Secret", html);
+            Assert.Matches("^<div dir=\"rtl\">\\s*<h1 ", html);
+        }
+
+        // What the editor writes where text would otherwise start a block. In view mode it has to
+        // stay a paragraph; the leading whitespace stays in the HTML, the browser then collapses it.
+        [Theory]
+        [InlineData("&#32;x\n", " x")]
+        [InlineData("&#32;   code?\n", "    code?")]
+        [InlineData("&#32;  three\n", "   three")]
+        [InlineData("&#32;  # no\n", "   # no")]
+        [InlineData("&#32;  1\\) x\n", "   1) x")]
+        [InlineData("&#9;foo\n", "\tfoo")]
+        [InlineData("&#9;    foo\n", "\t    foo")]
+        [InlineData("1\\) x\n", "1) x")]
+        [InlineData("12\\. y\n", "12. y")]
+        [InlineData("1\\.\n", "1.")]
+        [InlineData("1\\)\n", "1)")]
+        [InlineData("123456789\\) y\n", "123456789) y")]
+        public void Editor_block_start_escapes_render_as_one_plain_paragraph(string markdown, string expectedText)
+        {
+            string html = _renderer.RenderHtml(markdown, null);
+
+            Assert.Equal("<p>" + expectedText + "</p>\n", html);
+        }
+
+        [Theory]
+        [InlineData("**1) x**\n", "<p><strong>1) x</strong></p>\n")]
+        [InlineData("[12. y](u)\n", "<p><a href=\"u\">12. y</a></p>\n")]
+        [InlineData("a\n1\\) b\n", "<p>a\n1) b</p>\n")]
+        [InlineData("> 1\\) x\n", "<blockquote>\n<p>1) x</p>\n</blockquote>\n")]
+        [InlineData("- &#32;   x\n", "<ul>\n<li>    x</li>\n</ul>\n")]
+        [InlineData("**(a)**<!-- -->b\n", "<p><strong>(a)</strong><!-- -->b</p>\n")]
+        [InlineData("~~(a)~~<!-- -->\u0646\n", "<p><del>(a)</del><!-- -->\u0646</p>\n")]
+        [InlineData("**a**_b_\n", "<p><strong>a</strong><em>b</em></p>\n")]
+        [InlineData("**first&#32;\nsecond** tail\n", "<p><strong>first \nsecond</strong> tail</p>\n")]
+        [InlineData("&#32;   **x**\n", "<p>    <strong>x</strong></p>\n")]
+        [InlineData("*(a)*<!-- -->b\n", "<p><em>(a)</em><!-- -->b</p>\n")]
+        [InlineData("_b_<!-- -->c\n", "<p><em>b</em><!-- -->c</p>\n")]
+        [InlineData("b<!-- -->**(a)**\n", "<p>b<!-- --><strong>(a)</strong></p>\n")]
+        [InlineData("b<!-- -->~~(a)~~\n", "<p>b<!-- --><del>(a)</del></p>\n")]
+        [InlineData("a<!-- -->_b_\n", "<p>a<!-- --><em>b</em></p>\n")]
+        [InlineData("**(\u0643\u0644\u0645\u0629)**<!-- -->\u0648\n", "<p><strong>(\u0643\u0644\u0645\u0629)</strong><!-- -->\u0648</p>\n")]
+        [InlineData("~~(\u0643\u0644\u0645\u0629)~~<!-- -->\u0648\n", "<p><del>(\u0643\u0644\u0645\u0629)</del><!-- -->\u0648</p>\n")]
+        [InlineData("*(\u0643\u0644\u0645\u0629)*<!-- -->\u0648\n", "<p><em>(\u0643\u0644\u0645\u0629)</em><!-- -->\u0648</p>\n")]
+        [InlineData("\u0648<!-- -->**(\u0643\u0644\u0645\u0629)**\n", "<p>\u0648<!-- --><strong>(\u0643\u0644\u0645\u0629)</strong></p>\n")]
+        [InlineData("&#9;**x**\n", "<p>\t<strong>x</strong></p>\n")]
+        [InlineData("**a**&#32;\nb\n", "<p><strong>a</strong> \nb</p>\n")]
+        [InlineData("a\\`<!-- -->`b`\n", "<p>a`<!-- --><code>b</code></p>\n")]
+        [InlineData("[x](u)\ny\n", "<p><a href=\"u\">x</a>\ny</p>\n")]
+        [InlineData("first\\\n\\- item\n", "<p>first<br />\n- item</p>\n")]
+        [InlineData("first &#32;\nsecond\n", "<p>first  \nsecond</p>\n")]
+        [InlineData("\\+\n", "<p>+</p>\n")]
+        public void Editor_block_start_forms_keep_their_structure(string markdown, string expectedHtml)
+        {
+            Assert.Equal(expectedHtml, _renderer.RenderHtml(markdown, null));
+        }
+
+        [Theory]
+        [InlineData("## foo \\#\n", "foo #")]
+        [InlineData("## \\#\n", "#")]
+        [InlineData("## a \\##\n", "a ##")]
+        public void Escaped_closing_hashes_stay_in_the_heading_text(string markdown, string expectedText)
+        {
+            string html = _renderer.RenderHtml(markdown, null);
+
+            Assert.Matches("^<h2 [^>]*>" + expectedText + "</h2>\\s*$", html);
         }
 
         [Fact]
