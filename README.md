@@ -37,7 +37,7 @@
 
 ## Install
 
-1. Download `JustMd-Setup-<version>.exe` (2.8 MB) from the [latest release](https://github.com/khaled-Umar/JustMd/releases/latest).
+1. Download `JustMd-Setup-<version>.exe` (3.1 MB) from the [latest release](https://github.com/khaled-Umar/JustMd/releases/latest).
 2. Run it. It installs for the current user by default; you can choose an all-users install instead. The installer is not code-signed yet, so **Windows SmartScreen may warn you**: choose *More info*, then *Run anyway*.
 3. Pick the options:
    - **Associate Markdown files (.md, .markdown) with JustMd** (ticked)
