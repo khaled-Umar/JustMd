@@ -443,6 +443,13 @@ namespace JustMd
                     }
 
                     break;
+
+                case WebMessageType.SpellCheck:
+                case WebMessageType.SpellSuggest:
+                case WebMessageType.SpellIgnore:
+                case WebMessageType.SpellAdd:
+                    HandleSpellingMessage(message);
+                    break;
             }
         }
 

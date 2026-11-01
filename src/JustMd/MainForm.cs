@@ -10,6 +10,7 @@ using JustMd.Core;
 using JustMd.Core.Messaging;
 using JustMd.Core.Settings;
 using JustMd.Core.Tabs;
+using JustMd.Spelling;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace JustMd
@@ -30,6 +31,7 @@ namespace JustMd
         private readonly WebView2 _webView;
         private readonly System.Windows.Forms.Timer _saveTimer;
         private readonly ConcurrentQueue<IReadOnlyList<string>> _pendingFromOtherInstance = new();
+        private readonly SpellingService _spelling;
         private AppSettings _settingsBaseline;
         private ThemePalette _palette;
 
@@ -38,6 +40,7 @@ namespace JustMd
             _settings = _settingsStore.Load();
             _settingsBaseline = _settings.Clone();
             _palette = ThemePalette.For(_settings.Theme);
+            _spelling = new SpellingService(() => new WindowsSpellingEngine(), UserLanguages.Read, RunOnUiThread);
 
             Text = Program.AppName;
             Icon = LoadAppIcon();
@@ -183,6 +186,7 @@ namespace JustMd
                 }
 
                 _saveTimer.Dispose();
+                _spelling.Dispose();
             }
 
             base.Dispose(disposing);

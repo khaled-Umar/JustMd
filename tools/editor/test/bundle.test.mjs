@@ -63,6 +63,16 @@ test('the bundle exposes the frozen contract as a global and round-trips', () =>
   assert.equal(api.serialize(doc, baseline), source);
 });
 
+test('the bundle exposes the spelling plugin', () => {
+  const sandbox = {};
+  vm.runInNewContext(bundle, sandbox);
+  const { spelling } = sandbox.JustMdEditor;
+  for (const name of ['plugin', 'blockText', 'checkableBlocks', 'results', 'errorAt', 'clearWord', 'replace', 'suggestions']) {
+    assert.equal(typeof spelling[name], 'function', name);
+  }
+  assert.ok(spelling.key);
+});
+
 test('the bundle exposes the link and image rules the page relies on', () => {
   const sandbox = {};
   vm.runInNewContext(bundle, sandbox);

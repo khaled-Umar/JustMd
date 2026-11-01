@@ -290,6 +290,7 @@ namespace JustMd
                 return;
             }
 
+            bool spelling = _spelling.IsAvailable;
             _pageRevisions[tab.Id] = tab.EditRevision;
             Post(new HostMessage
             {
@@ -302,6 +303,8 @@ namespace JustMd
                 FilePath = tab.Path,
                 ImageBase = ImageBaseFor(tab),
                 Untitled = tab.IsUntitled,
+                Spelling = spelling,
+                NativeSpelling = !spelling || !_spelling.Checks(CultureInfo.CurrentUICulture.Name),
             });
 
             if (_externalChangeNotShown.Remove(tab.Id))
@@ -428,6 +431,7 @@ namespace JustMd
         {
             _pageRevisions.Remove(tab.Id);
             _externalChangeNotShown.Remove(tab.Id);
+            _spelling.Forget(tab.Id);
             Post(new HostMessage { Type = "exitEdit", TabId = tab.Id });
         }
 
@@ -832,6 +836,7 @@ namespace JustMd
         private void ApplyDiskText(DocumentTab tab, string text, Encoding encoding)
         {
             SetEditorDocument(tab, DocumentText.Parse(text, encoding), text);
+            _spelling.Forget(tab.Id); // the queued scan is of the text just replaced
             _externalChangeNotShown.Remove(tab.Id);
             if (ReferenceEquals(tab, _tabs.Active))
             {
@@ -903,6 +908,7 @@ namespace JustMd
             {
                 editsLost |= tab.IsDirty;
                 tab.IsDirty = false;
+                _spelling.Forget(tab.Id);
                 if (tab.ExternalChangePending)
                 {
                     _externalChangeNotShown.Add(tab.Id);
