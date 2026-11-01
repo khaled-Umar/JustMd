@@ -89,7 +89,7 @@ It runs the tests, publishes the app to `artifacts/publish`, and writes `artifac
 | --- | --- |
 | `src/JustMd.Core` | Rendering, link classification, local-image URLs, settings and session, the tab model, the single-instance protocol |
 | `src/JustMd` | The WinForms shell (window, WebView2 host, link dialog) and the `web/` viewer page |
-| `tests/JustMd.Tests` | Unit tests (225) |
+| `tests/JustMd.Tests` | Unit tests (228) |
 | `installer/` | Inno Setup script |
 | `assets/` | Logo, wordmark and app icon |
 | `tools/icon/` | Generator for everything in `assets/` plus the site favicons |
