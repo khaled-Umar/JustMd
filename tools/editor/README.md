@@ -63,6 +63,16 @@ commands: { setParagraph, setHeading(level), toggleBold, toggleItalic, toggleStr
   // each command is a ProseMirror Command (state, dispatch) => boolean
 queries: { activeMarks(state) -> Set<string>, blockType(state) -> 'paragraph'|'heading-1'..'heading-6'|'code_block'|...,
   linkAt(state) -> {href, title, from, to} | null, imageAt(state) -> {pos, attrs} | null, inTable(state) -> boolean }
+spelling: {
+  key,                                        // PluginKey; state { decorations, pending: Map<id, { blocks, mapping }>, dirty: ranges | 'all', cleared }
+  plugin({ request(blocks, scan) -> id, delay = 500, maxBlockLength = 65536, maxRequestLength = 131072, maxBlocks = 1000 }) -> Plugin,
+  blockText(node) -> string,                  // one UTF-16 unit per position; code marks and atoms are spaces, a hard break is \n
+  checkableBlocks(doc, ranges?) -> [{ pos, text }],
+  results(state, requestId, blocks) -> Transaction | null,   // blocks: [[{ start, length, language, action, replacement }]] in request order; validated here
+  errorAt(state, pos) -> { from, to, word, language, action, replacement } | null,
+  clearWord(state, word, language) -> Transaction | null,
+  replace(state, error, text) -> Transaction | null,         // text '' deletes the word and one space before it
+  suggestions(list) -> string[] }             // the usable part of what the host offered, at most 8
 ```
 
 Notes for callers:
@@ -75,4 +85,5 @@ Notes for callers:
 - `table.addRowBefore` and `table.deleteRow` return false on the header row, since GFM's header is always the first row.
 - `toggleTaskList` turns plain list items into open tasks, and lifts items out of the list when all of them are already tasks; elsewhere it wraps the selection in a bullet list of open tasks.
 - Page-level keys in `basePlugins`: Enter, Shift+Enter (hard break; in a code block, leave it), Tab and Shift+Tab, Backspace, Delete, Escape. Enter on an empty last line of a code block also leaves it. Link, image and table shortcuts open page popovers, so they are not in the plain-browser bindings either.
+- `spelling.plugin` asks for text itself once a view is attached: the whole document on the first attach (`scan` true), then only changed blocks, 500 ms after the last change. `results` and `clearWord` have no steps, so applying them cannot make a document dirty or add an undo step. `replace` is a real edit in its own undo step, and it rewrites the word's top-level block like any other edit (see Fidelity).
 - Node types the page renders with node views: `image` (`src` is the raw Markdown target), `html_block` and `html_inline` (`attrs.source`), `list_item` (`attrs.checked`: null, true or false), `code_block` (`attrs.params`).

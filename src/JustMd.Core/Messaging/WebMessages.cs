@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using JustMd.Core.Spelling;
 using JustMd.Core.Tabs;
 
 namespace JustMd.Core.Messaging
@@ -69,6 +71,18 @@ namespace JustMd.Core.Messaging
 
         /// <summary>User chose to discard their changes after the file changed on disk.</summary>
         ReloadFromDisk,
+
+        /// <summary>Check the spelling of <see cref="WebMessage.Blocks"/>; answered with "spellResult".</summary>
+        SpellCheck,
+
+        /// <summary>Find replacements for <see cref="WebMessage.Word"/>; answered with "spellSuggestions".</summary>
+        SpellSuggest,
+
+        /// <summary>Stop flagging <see cref="WebMessage.Word"/> until JustMd closes.</summary>
+        SpellIgnore,
+
+        /// <summary>Add <see cref="WebMessage.Word"/> to the user's Windows dictionary.</summary>
+        SpellAdd,
     }
 
     /// <summary>A validated message from the viewer page.</summary>
@@ -114,18 +128,45 @@ namespace JustMd.Core.Messaging
         /// <summary>For <see cref="WebMessageType.EditorContent"/>: why the page has no Markdown to hand over (<see cref="ErrorTooLarge"/> or <see cref="ErrorFailed"/>), else null.</summary>
         public string? Error { get; internal init; }
 
-        /// <summary>For <see cref="WebMessageType.EditorContent"/>.</summary>
+        /// <summary>For <see cref="WebMessageType.EditorContent"/>, <see cref="WebMessageType.SpellCheck"/> and <see cref="WebMessageType.SpellSuggest"/>.</summary>
         public int RequestId { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.SpellCheck"/>: the page is scanning the whole document, not reporting an edit.</summary>
+        public bool Scan { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.SpellCheck"/>.</summary>
+        public IReadOnlyList<string>? Blocks { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.SpellSuggest"/>, <see cref="WebMessageType.SpellIgnore"/> and <see cref="WebMessageType.SpellAdd"/>.</summary>
+        public string? Language { get; internal init; }
+
+        /// <summary>For <see cref="WebMessageType.SpellSuggest"/>, <see cref="WebMessageType.SpellIgnore"/> and <see cref="WebMessageType.SpellAdd"/>.</summary>
+        public string? Word { get; internal init; }
     }
 
     /// <summary>Parses and validates JSON messages posted by the viewer page.</summary>
-    public static class WebMessageParser
+    public static partial class WebMessageParser
     {
         /// <summary>Upper bound for clipboard text coming from a code block.</summary>
         public const int MaxCopyLength = 16 * 1024 * 1024;
 
         /// <summary>Upper bound for a document coming from the editor, in characters.</summary>
         public const int MaxMarkdownLength = 8 * 1024 * 1024;
+
+        /// <summary>Upper bound for the blocks in one spelling request. Mirrored in editor.js.</summary>
+        public const int MaxSpellingBlocks = 1000;
+
+        /// <summary>Upper bound for one block in a spelling request, in characters. Mirrored in editor.js.</summary>
+        public const int MaxSpellingBlockLength = 64 * 1024;
+
+        /// <summary>Upper bound for all the blocks in one spelling request, in characters. Mirrored in editor.js.</summary>
+        public const int MaxSpellingTextLength = 128 * 1024;
+
+        /// <summary>Upper bound for a word sent for suggestions, ignoring or adding, in characters.</summary>
+        public const int MaxSpellingWordLength = 128;
+
+        /// <summary>Upper bound for the suggestions sent back for a word.</summary>
+        public const int MaxSpellingSuggestions = 8;
 
         /// <summary>Returns the message, or null if the JSON is malformed, of an unknown type or fails validation.</summary>
         public static WebMessage? Parse(string? json)
@@ -191,6 +232,16 @@ namespace JustMd.Core.Messaging
                         : null;
                 case "editorContent":
                     return ParseEditorContent(dto);
+                case "spellCheck":
+                    return ParseSpellCheck(dto);
+                case "spellSuggest":
+                    return dto.RequestId is int suggestId && suggestId > 0
+                        ? ParseSpellingWord(dto, WebMessageType.SpellSuggest, suggestId)
+                        : null;
+                case "spellIgnore":
+                    return ParseSpellingWord(dto, WebMessageType.SpellIgnore, 0);
+                case "spellAdd":
+                    return ParseSpellingWord(dto, WebMessageType.SpellAdd, 0);
                 case "copy":
                     return dto.Text == null || dto.Text.Length > MaxCopyLength
                         ? null
@@ -233,6 +284,54 @@ namespace JustMd.Core.Messaging
 
             return new WebMessage(WebMessageType.EditorContent) { TabId = id, RequestId = requestId, Rtl = rtl, Markdown = dto.Markdown };
         }
+
+        private static WebMessage? ParseSpellCheck(IncomingDto dto)
+        {
+            if (dto.TabId is not int id || id <= 0
+                || dto.RequestId is not int requestId || requestId <= 0
+                || dto.Scan is not bool scan
+                || dto.Blocks is not List<string?> blocks
+                || blocks.Count == 0 || blocks.Count > MaxSpellingBlocks)
+            {
+                return null;
+            }
+
+            int total = 0;
+            var checkedBlocks = new List<string>(blocks.Count);
+            foreach (string? block in blocks)
+            {
+                if (block == null || block.Length > MaxSpellingBlockLength)
+                {
+                    return null;
+                }
+
+                total += block.Length;
+                if (total > MaxSpellingTextLength)
+                {
+                    return null;
+                }
+
+                checkedBlocks.Add(block);
+            }
+
+            return new WebMessage(WebMessageType.SpellCheck) { TabId = id, RequestId = requestId, Scan = scan, Blocks = checkedBlocks };
+        }
+
+        private static WebMessage? ParseSpellingWord(IncomingDto dto, WebMessageType type, int requestId)
+        {
+            if (dto.TabId is not int id || id <= 0
+                || dto.Language is not string language || !LanguageTag().IsMatch(language)
+                || dto.Word is not string word || word.Length == 0 || word.Length > MaxSpellingWordLength
+                || word.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+            {
+                return null;
+            }
+
+            return new WebMessage(type) { TabId = id, RequestId = requestId, Language = language, Word = word };
+        }
+
+        [GeneratedRegex(@"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}\z", RegexOptions.CultureInvariant)]
+        private static partial Regex LanguageTag();
 
         private static WebMessage? ParseTabState(IncomingDto dto)
         {
@@ -307,6 +406,18 @@ namespace JustMd.Core.Messaging
 
             [JsonPropertyName("error")]
             public string? Error { get; set; }
+
+            [JsonPropertyName("scan")]
+            public bool? Scan { get; set; }
+
+            [JsonPropertyName("blocks")]
+            public List<string?>? Blocks { get; set; }
+
+            [JsonPropertyName("language")]
+            public string? Language { get; set; }
+
+            [JsonPropertyName("word")]
+            public string? Word { get; set; }
         }
     }
 
@@ -319,7 +430,7 @@ namespace JustMd.Core.Messaging
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        /// <summary>render | welcome | error | tabs | theme | outline | toggleOutline | copied | scrollTo | selectAll | flushState | edit | exitEdit | editorCommand | requestContent | saved | documentRenamed | externalChange | imagePicked.</summary>
+        /// <summary>render | welcome | error | tabs | theme | outline | toggleOutline | copied | scrollTo | selectAll | flushState | edit | exitEdit | editorCommand | requestContent | saved | documentRenamed | externalChange | imagePicked | spellResult | spellSuggestions.</summary>
         public string Type { get; set; } = string.Empty;
 
         /// <summary>Rendered (unsanitised) document HTML for "render"; the page sanitises it.</summary>
@@ -391,7 +502,7 @@ namespace JustMd.Core.Messaging
         /// <summary>Command argument for "editorCommand", such as the heading level.</summary>
         public string? Arg { get; set; }
 
-        /// <summary>Id the page echoes in "editorContent", for "requestContent".</summary>
+        /// <summary>Id the page echoes in "editorContent", for "requestContent"; the page's own id, for "spellResult" and "spellSuggestions".</summary>
         public int RequestId { get; set; }
 
         /// <summary>Markdown image reference for "imagePicked".</summary>
@@ -400,7 +511,44 @@ namespace JustMd.Core.Messaging
         /// <summary>Image alternative text for "imagePicked".</summary>
         public string? Alt { get; set; }
 
+        /// <summary>The page may ask for spell checks, for "edit".</summary>
+        public bool Spelling { get; set; }
+
+        /// <summary>The errors in each block of the request, in request order, for "spellResult".</summary>
+        public IReadOnlyList<IReadOnlyList<SpellingErrorInfo>>? Blocks { get; set; }
+
+        /// <summary>Replacements for the word, for "spellSuggestions". Empty when there are none.</summary>
+        public IReadOnlyList<string>? Suggestions { get; set; }
+
         public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
+    }
+
+    /// <summary>One misspelling in a block of a "spellResult", in UTF-16 units of the block's text.</summary>
+    public sealed class SpellingErrorInfo
+    {
+        // The message options drop default values, but the first word of a block starts at 0.
+        [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+        public int Start { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+        public int Length { get; set; }
+
+        public string Language { get; set; } = string.Empty;
+
+        /// <summary>The Windows CORRECTIVE_ACTION: 1 suggestions, 2 replace with <see cref="Replacement"/>, 3 delete.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+        public int Action { get; set; }
+
+        public string? Replacement { get; set; }
+
+        public static SpellingErrorInfo From(SpellingError error) => new()
+        {
+            Start = error.Start,
+            Length = error.Length,
+            Language = error.Language,
+            Action = error.Action,
+            Replacement = error.Replacement,
+        };
     }
 
     /// <summary>One entry in the tab strip.</summary>

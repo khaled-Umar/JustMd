@@ -302,6 +302,7 @@ namespace JustMd
                 FilePath = tab.Path,
                 ImageBase = ImageBaseFor(tab),
                 Untitled = tab.IsUntitled,
+                Spelling = _spelling.IsAvailable,
             });
 
             if (_externalChangeNotShown.Remove(tab.Id))
@@ -428,6 +429,7 @@ namespace JustMd
         {
             _pageRevisions.Remove(tab.Id);
             _externalChangeNotShown.Remove(tab.Id);
+            _spelling.Forget(tab.Id);
             Post(new HostMessage { Type = "exitEdit", TabId = tab.Id });
         }
 
@@ -903,6 +905,7 @@ namespace JustMd
             {
                 editsLost |= tab.IsDirty;
                 tab.IsDirty = false;
+                _spelling.Forget(tab.Id);
                 if (tab.ExternalChangePending)
                 {
                     _externalChangeNotShown.Add(tab.Id);

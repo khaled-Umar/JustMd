@@ -13,6 +13,7 @@ import { commands, insideList, queries } from './commands.js';
 import { parse } from './parser.js';
 import { isSafeHref, isSafeImageSrc, schema } from './schema.js';
 import { serialize } from './serializer.js';
+import { spelling } from './spelling.js';
 
 const { nodes } = schema;
 
@@ -137,4 +138,5 @@ export {
   queries,
   isSafeHref,
   isSafeImageSrc,
+  spelling,
 };
