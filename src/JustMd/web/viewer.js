@@ -17,6 +17,7 @@
     root: document.documentElement,
     body: document.body,
     content: document.getElementById('content'),
+    editor: document.getElementById('editor'),
     scroller: document.getElementById('scroller'),
     welcome: document.getElementById('welcome'),
     error: document.getElementById('error'),
@@ -30,6 +31,7 @@
     outlineResizer: document.getElementById('outline-resizer'),
     btnOutline: document.getElementById('btn-outline'),
     btnTheme: document.getElementById('btn-theme'),
+    btnEdit: document.getElementById('btn-edit'),
     dropOverlay: document.getElementById('drop-overlay')
   };
 
@@ -41,6 +43,11 @@
   // The host owns the tabs; the page shows one tab at a time and reports its view state
   // (scroll, outline) so the host can restore it exactly when the tab is shown again.
   var currentTabId = 0;
+  var contentTabId = 0; // tab whose document is in #content (and whose headings fill the outline)
+  var editExit = null;  // { tabId, scrollTop } from leaving the editor, applied by the next render
+  var tooLargeToEdit = false;
+  var editorHooks = null; // set by editor.js: { message(msg), tabs(tabs), hidden() }
+  var devSink = null;     // dev-only stand-in for the host in a plain browser (see editor.js)
   var reportTimer = 0;
   var pendingRestore = null; // { top, until } re-applied while images load, until the user scrolls
 
@@ -83,6 +90,8 @@
   function post(message) {
     if (webview) {
       webview.postMessage(message);
+    } else if (devSink) {
+      devSink(message);
     }
   }
 
@@ -96,7 +105,12 @@
       case 'render': render(msg); break;
       case 'welcome': showWelcome(); break;
       case 'error': showError(msg); break;
-      case 'tabs': renderTabs(msg.tabs || [], msg.activeTabId || 0); break;
+      case 'tabs':
+        renderTabs(msg.tabs || [], msg.activeTabId || 0);
+        if (editorHooks) {
+          editorHooks.tabs(msg.tabs || []);
+        }
+        break;
       case 'theme': applyTheme(msg.theme, msg.mode); break;
       case 'outline':
         setOutlineWidth(msg.width, false);
@@ -106,17 +120,69 @@
       case 'copied': onCopied(msg.id, !!msg.ok); break;
       case 'scrollTo': scrollToFragment(msg.fragment); break;
       case 'selectAll': selectAllContent(); break;
+      default:
+        // edit, exitEdit, editorCommand, ... belong to editor.js.
+        if (editorHooks) {
+          editorHooks.message(msg);
+        }
     }
   }
 
   // ---------- states ----------
 
   function showOnly(section) {
+    var wasEditing = !el.editor.hidden;
+    var editing = section === el.editor;
+    if (wasEditing && !editing && editorHooks) {
+      editorHooks.hidden(); // still laid out here, so the editor can read its scroll position
+    }
+
     el.content.hidden = section !== el.content;
+    el.editor.hidden = !editing;
     el.welcome.hidden = section !== el.welcome;
     el.error.hidden = section !== el.error;
     // No document, no outline (the user's show/hide preference is left untouched).
-    el.body.classList.toggle('no-document', section !== el.content);
+    el.body.classList.toggle('no-document', section !== el.content && !editing);
+    el.body.classList.toggle('editing', editing);
+    el.btnOutline.disabled = editing;
+    if (wasEditing && !editing && outline.visible) {
+      el.outline.scrollTop = outline.savedScrollTop; // display:none dropped it
+    }
+    updateEditButton();
+  }
+
+  function updateEditButton() {
+    var editing = !el.editor.hidden;
+    el.btnEdit.hidden = el.content.hidden && !editing;
+    el.btnEdit.disabled = tooLargeToEdit && !editing;
+    el.btnEdit.setAttribute('aria-pressed', editing ? 'true' : 'false');
+    el.btnEdit.title = editing ? 'Finish editing (F2)' : (tooLargeToEdit ? 'Too large to edit' : 'Edit (F2)');
+  }
+
+  // Shows the editor root in place of #content. Only editor.js calls this, and only in response
+  // to an "edit" message from the host.
+  function showEditor(tabId, base) {
+    if (!el.content.hidden) {
+      flushTabState();
+      outline.savedScrollTop = el.outline.scrollTop;
+    }
+    switchToTab(tabId);
+    imageBase = base;
+    editExit = null;
+    tooLargeToEdit = false;
+    showOnly(el.editor);
+  }
+
+  // The host ended editing for the shown tab; its "render" (or "welcome") follows straight away.
+  function leaveEditor() {
+    if (el.editor.hidden) {
+      return;
+    }
+    editExit = { tabId: currentTabId, scrollTop: el.scroller.scrollTop };
+    if (contentTabId !== currentTabId) {
+      el.content.replaceChildren(); // a different tab's document: never show it, even briefly
+    }
+    showOnly(el.content);
   }
 
   // Called before the page switches to another tab: send the old tab's view state now.
@@ -134,6 +200,9 @@
   function clearDocument() {
     imageBase = null;
     pendingRestore = null;
+    editExit = null;
+    contentTabId = 0;
+    tooLargeToEdit = false;
     el.content.replaceChildren();
     outline.collapsed.clear();
     outline.savedScrollTop = 0;
@@ -218,7 +287,8 @@
       item.className = 'tab';
       item.setAttribute('role', 'tab');
       item.dataset.id = String(tab.id);
-      item.title = tab.path || tab.name;
+      item.title = tab.untitled ? '' : (tab.path || tab.name);
+      item.classList.toggle('editing', !!tab.editing);
       var active = tab.id === activeId;
       item.setAttribute('aria-selected', active ? 'true' : 'false');
       item.tabIndex = active ? 0 : -1;
@@ -228,9 +298,9 @@
       }
 
       var dot = document.createElement('span');
-      dot.className = 'tab-dot';
-      dot.hidden = !tab.updated;
-      dot.title = 'Updated on disk';
+      dot.className = tab.dirty ? 'tab-dot dirty' : 'tab-dot';
+      dot.hidden = !tab.updated && !tab.dirty;
+      dot.title = tab.dirty ? 'Unsaved changes' : 'Updated on disk';
 
       var name = document.createElement('span');
       name.className = 'tab-name';
@@ -317,7 +387,7 @@
   }
 
   function selectAllContent() {
-    var target = !el.content.hidden ? el.content : (!el.welcome.hidden ? el.welcome : el.error);
+    var target = !el.content.hidden ? el.content : (!el.editor.hidden ? el.editor : (!el.welcome.hidden ? el.welcome : el.error));
     var range = document.createRange();
     range.selectNodeContents(target);
     var selection = window.getSelection();
@@ -481,8 +551,10 @@
 
     var previousScroll = el.scroller.scrollTop;
     var showingContent = !el.content.hidden;
+    var exit = editExit && editExit.tabId === (msg.tabId || 0) ? editExit : null;
+    editExit = null;
     var switching = switchToTab(msg.tabId || 0);
-    var sameTab = !switching && showingContent;
+    var sameTab = !switching && showingContent && contentTabId === (msg.tabId || 0);
     if (!sameTab) {
       // Another tab: take its remembered outline state, or start fully expanded.
       outline.collapsed = new Set(msg.restoreView && Array.isArray(msg.collapsed) ? msg.collapsed : []);
@@ -492,13 +564,23 @@
     imageBase = typeof msg.imageBase === 'string' ? msg.imageBase : null;
     var fragment = purify.sanitize(String(msg.html || ''), PURIFY_CONFIG);
     decorate(fragment);
+    if (!fragment.hasChildNodes()) {
+      var hint = document.createElement('p');
+      hint.className = 'empty-hint';
+      hint.textContent = 'This document is empty.';
+      fragment.appendChild(hint);
+    }
     el.content.replaceChildren(fragment);
+    contentTabId = msg.tabId || 0;
+    tooLargeToEdit = !!msg.tooLarge;
 
     showOnly(el.content);
     buildOutline(sameTab);
 
     pendingRestore = null;
-    if (msg.preserveScroll && sameTab) {
+    if (exit && !msg.fragment) {
+      restoreScroll(exit.scrollTop); // back from the editor: stay where the user was
+    } else if (msg.preserveScroll && sameTab) {
       restoreScroll(previousScroll);
     } else if (msg.fragment) {
       el.scroller.scrollTop = 0;
@@ -1101,7 +1183,8 @@
     event.preventDefault();
     event.stopPropagation();
 
-    if (event.type !== 'click' || event.button !== 0 || !el.content.contains(anchor)) {
+    // While editing a click only places the cursor; the editor's link popover offers "Open".
+    if (event.type !== 'click' || event.button !== 0 || !el.editor.hidden || !el.content.contains(anchor)) {
       return;
     }
 
@@ -1164,6 +1247,34 @@
     }
   }
 
+  // ---------- API for editor.js ----------
+
+  window.JustMdViewer = {
+    purifyConfig: PURIFY_CONFIG,
+    localImageUrl: localImageUrl,
+    // Same sanitising as a rendered document; returns a fragment, or null without DOMPurify.
+    sanitize: function (html) {
+      var purify = window.DOMPurify;
+      if (!purify || !purify.isSupported) {
+        return null;
+      }
+      var fragment = purify.sanitize(String(html || ''), PURIFY_CONFIG);
+      fragment.querySelectorAll('input').forEach(function (input) {
+        if ((input.getAttribute('type') || '').toLowerCase() !== 'checkbox') {
+          input.remove();
+        }
+      });
+      return fragment;
+    },
+    post: post,
+    receive: function (msg) { onHostMessage({ data: msg }); },
+    showEditor: showEditor,
+    leaveEditor: leaveEditor,
+    currentTabId: function () { return currentTabId; },
+    setHooks: function (hooks) { editorHooks = hooks; },
+    setDevSink: function (sink) { devSink = webview ? null : sink; }
+  };
+
   // ---------- startup ----------
 
   function init() {
@@ -1186,7 +1297,7 @@
     window.addEventListener('drop', function (e) { e.preventDefault(); });
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && outline.visible && window.matchMedia('(max-width: 860px)').matches) {
+      if (e.key === 'Escape' && el.editor.hidden && outline.visible && window.matchMedia('(max-width: 860px)').matches) {
         setOutlineVisible(false, true);
       }
     });
@@ -1229,6 +1340,9 @@
     document.getElementById('btn-open').addEventListener('click', openFile);
     document.getElementById('btn-welcome-open').addEventListener('click', openFile);
     document.getElementById('btn-error-open').addEventListener('click', openFile);
+    function newFile() { post({ type: 'newFile' }); }
+    document.getElementById('btn-new').addEventListener('click', newFile);
+    document.getElementById('btn-welcome-new').addEventListener('click', newFile);
     el.btnTheme.addEventListener('click', function () { post({ type: 'cycleTheme' }); });
     el.btnOutline.addEventListener('click', function () {
       setOutlineVisible(!outline.visible, true);
@@ -1237,7 +1351,8 @@
     setOutlineWidth(OUTLINE_DEFAULT, false);
     if (webview) {
       webview.addEventListener('message', onHostMessage);
-      post({ type: 'ready' });
+      // After every deferred script, so editor.js sees an "edit" sent in answer to "ready".
+      document.addEventListener('DOMContentLoaded', function () { post({ type: 'ready' }); });
     } else {
       showWelcome();
     }

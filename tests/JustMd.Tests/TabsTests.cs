@@ -137,6 +137,111 @@ namespace JustMd.Tests
             Assert.Null(new TabCollection().Open("", out _));
         }
 
+        [Fact]
+        public void Untitled_numbers_count_up_and_are_not_reused()
+        {
+            var tabs = new TabCollection();
+            DocumentTab one = tabs.NewUntitled();
+            DocumentTab two = tabs.NewUntitled();
+            tabs.Close(two);
+            DocumentTab three = tabs.NewUntitled();
+
+            Assert.Equal(1, one.UntitledNumber);
+            Assert.Equal(3, three.UntitledNumber);
+            Assert.Equal("Untitled 3", three.DisplayName);
+            Assert.True(three.IsUntitled);
+            Assert.Null(three.Path);
+            Assert.Equal(string.Empty, three.FileName);
+            Assert.NotEqual(one.Id, three.Id);
+            Assert.Equal(new[] { one, three }, tabs.Tabs);
+            Assert.Null(tabs.Active); // like Open, does not activate
+        }
+
+        [Fact]
+        public void File_tabs_show_their_file_name()
+        {
+            DocumentTab tab = new TabCollection().Open(@"C:\docs\a.md", out _)!;
+
+            Assert.False(tab.IsUntitled);
+            Assert.Equal("a.md", tab.DisplayName);
+            Assert.Equal(0, tab.UntitledNumber);
+        }
+
+        [Fact]
+        public void Find_never_returns_untitled()
+        {
+            var tabs = new TabCollection();
+            tabs.NewUntitled();
+
+            Assert.Null(tabs.Find(null));
+            Assert.Null(tabs.Find(""));
+            Assert.Null(tabs.Find("Untitled 1"));
+            Assert.Null(tabs.Find(@"C:\docs\a.md"));
+        }
+
+        [Fact]
+        public void SetPath_normalises_and_makes_the_tab_findable()
+        {
+            var tabs = new TabCollection();
+            DocumentTab tab = tabs.NewUntitled();
+
+            Assert.True(tabs.SetPath(tab, @"C:\docs\sub\..\a.md", out DocumentTab? displaced));
+
+            Assert.Null(displaced);
+            Assert.Equal(@"C:\docs\a.md", tab.Path);
+            Assert.False(tab.IsUntitled);
+            Assert.Equal("a.md", tab.DisplayName);
+            Assert.Same(tab, tabs.Find(@"c:\DOCS\a.md"));
+        }
+
+        [Fact]
+        public void SetPath_onto_another_open_file_removes_that_tab()
+        {
+            var tabs = new TabCollection();
+            DocumentTab other = tabs.Open(@"C:\docs\a.md", out _)!;
+            DocumentTab tab = tabs.NewUntitled();
+            tabs.Activate(tab);
+
+            Assert.True(tabs.SetPath(tab, @"c:\DOCS\A.md", out DocumentTab? displaced));
+
+            Assert.Same(other, displaced);
+            Assert.Equal(new[] { tab }, tabs.Tabs);
+            Assert.Same(tab, tabs.Active);
+            Assert.Same(tab, tabs.Find(@"C:\docs\a.md"));
+        }
+
+        [Fact]
+        public void SetPath_onto_its_own_file_displaces_nothing()
+        {
+            var tabs = new TabCollection();
+            DocumentTab tab = tabs.Open(@"C:\docs\a.md", out _)!;
+
+            Assert.True(tabs.SetPath(tab, @"C:\DOCS\a.md", out DocumentTab? displaced));
+
+            Assert.Null(displaced);
+            Assert.Equal(1, tabs.Count);
+        }
+
+        [Fact]
+        public void SetPath_with_invalid_path_changes_nothing()
+        {
+            var tabs = new TabCollection();
+            DocumentTab tab = tabs.NewUntitled();
+
+            Assert.False(tabs.SetPath(tab, "  ", out DocumentTab? displaced));
+
+            Assert.Null(displaced);
+            Assert.True(tab.IsUntitled);
+        }
+
+        [Fact]
+        public void SetPath_rejects_a_foreign_tab()
+        {
+            DocumentTab foreign = new TabCollection().NewUntitled();
+
+            Assert.Throws<ArgumentException>(() => new TabCollection().SetPath(foreign, @"C:\a.md", out _));
+        }
+
         private static TabCollection Make(out DocumentTab a, out DocumentTab b, out DocumentTab c)
         {
             var tabs = new TabCollection();
@@ -225,6 +330,88 @@ namespace JustMd.Tests
             Assert.NotEqual(a, c);
             Assert.DoesNotContain("\\", InstanceProtocol.PipeName("dom\\user name", 1));
             Assert.StartsWith(@"Local\", InstanceProtocol.MutexName("S-1-5-21-1", 1));
+        }
+    }
+
+    public class SessionCaptureTests
+    {
+        [Fact]
+        public void Saves_file_tabs_in_order_with_rounded_scroll()
+        {
+            var tabs = new TabCollection();
+            DocumentTab a = tabs.Open(@"C:\a.md", out _)!;
+            DocumentTab b = tabs.Open(@"C:\b.md", out _)!;
+            a.View = new TabViewState(10.6, 0, Array.Empty<string>());
+
+            SessionState state = SessionState.From(tabs.Tabs, b);
+
+            Assert.Equal(new[] { @"C:\a.md", @"C:\b.md" }, state.Tabs.Select(t => t.Path));
+            Assert.Equal(11, state.Tabs[0].ScrollTop);
+            Assert.Equal(0, state.Tabs[1].ScrollTop);
+            Assert.Equal(1, state.ActiveIndex);
+        }
+
+        [Fact]
+        public void Active_index_counts_only_saved_tabs()
+        {
+            var tabs = new TabCollection();
+            tabs.NewUntitled();
+            tabs.Open(@"C:\a.md", out _);
+            tabs.NewUntitled();
+            DocumentTab b = tabs.Open(@"C:\b.md", out _)!;
+
+            SessionState state = SessionState.From(tabs.Tabs, b);
+
+            Assert.Equal(2, state.Tabs.Count);
+            Assert.Equal(1, state.ActiveIndex);
+        }
+
+        [Fact]
+        public void Active_untitled_falls_back_to_nearest_preceding_saved_tab()
+        {
+            var tabs = new TabCollection();
+            tabs.Open(@"C:\a.md", out _);
+            tabs.Open(@"C:\b.md", out _);
+            tabs.NewUntitled();
+            DocumentTab active = tabs.NewUntitled();
+            tabs.Open(@"C:\c.md", out _);
+
+            Assert.Equal(1, SessionState.From(tabs.Tabs, active).ActiveIndex);
+        }
+
+        [Fact]
+        public void Active_untitled_with_no_saved_tab_before_it_gives_minus_one()
+        {
+            var tabs = new TabCollection();
+            DocumentTab active = tabs.NewUntitled();
+            tabs.Open(@"C:\a.md", out _);
+
+            SessionState state = SessionState.From(tabs.Tabs, active);
+
+            Assert.Single(state.Tabs);
+            Assert.Equal(-1, state.ActiveIndex);
+        }
+
+        [Fact]
+        public void No_active_tab_gives_minus_one()
+        {
+            var tabs = new TabCollection();
+            tabs.Open(@"C:\a.md", out _);
+
+            Assert.Equal(-1, SessionState.From(tabs.Tabs, null).ActiveIndex);
+            Assert.Equal(-1, SessionState.From(tabs.Tabs, new TabCollection().NewUntitled()).ActiveIndex);
+        }
+
+        [Fact]
+        public void Only_untitled_tabs_give_an_empty_session()
+        {
+            var tabs = new TabCollection();
+            DocumentTab active = tabs.NewUntitled();
+
+            SessionState state = SessionState.From(tabs.Tabs, active);
+
+            Assert.Empty(state.Tabs);
+            Assert.Equal(-1, state.ActiveIndex);
         }
     }
 

@@ -9,6 +9,27 @@ third-party components. Their licenses are reproduced below.
 | [Microsoft.Web.WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2) SDK | 1.0.4258.31 | BSD-3-Clause (Microsoft) | `Microsoft.Web.WebView2.Core.dll`, `Microsoft.Web.WebView2.WinForms.dll`, `runtimes/*/native/WebView2Loader.dll` |
 | [highlight.js](https://highlightjs.org/) (common-languages build from `@highlightjs/cdn-assets`, plus the `powershell` and `dockerfile` grammars) | 11.12.0 | BSD-3-Clause | `web/vendor/highlight.min.js`, `web/vendor/languages/*.min.js` |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.16 | Apache-2.0 or MPL-2.0 (dual; used under Apache-2.0) | `web/vendor/purify.min.js` |
+| [prosemirror-model](https://github.com/ProseMirror/prosemirror-model) | 1.25.12 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-state](https://github.com/ProseMirror/prosemirror-state) | 1.4.4 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-view](https://github.com/ProseMirror/prosemirror-view) | 1.42.9 | MIT | `web/vendor/editor.bundle.js`, `web/vendor/editor.css` |
+| [prosemirror-transform](https://github.com/ProseMirror/prosemirror-transform) | 1.12.4 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-markdown](https://github.com/ProseMirror/prosemirror-markdown) | 1.13.9 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-tables](https://github.com/ProseMirror/prosemirror-tables) | 1.8.5 | MIT | `web/vendor/editor.bundle.js`, `web/vendor/editor.css` |
+| [prosemirror-commands](https://github.com/ProseMirror/prosemirror-commands) | 1.7.2 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-history](https://github.com/ProseMirror/prosemirror-history) | 1.5.1 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-keymap](https://github.com/ProseMirror/prosemirror-keymap) | 1.2.3 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-schema-list](https://github.com/ProseMirror/prosemirror-schema-list) | 1.6.0 | MIT | `web/vendor/editor.bundle.js` |
+| [prosemirror-gapcursor](https://github.com/ProseMirror/prosemirror-gapcursor) | 1.4.1 | MIT | `web/vendor/editor.bundle.js`, `web/vendor/editor.css` |
+| [prosemirror-dropcursor](https://github.com/ProseMirror/prosemirror-dropcursor) | 1.8.4 | MIT | `web/vendor/editor.bundle.js` |
+| [orderedmap](https://github.com/marijnh/orderedmap) (used by prosemirror-model) | 2.1.1 | MIT | `web/vendor/editor.bundle.js` |
+| [rope-sequence](https://github.com/marijnh/rope-sequence) (used by prosemirror-history) | 1.3.4 | MIT | `web/vendor/editor.bundle.js` |
+| [w3c-keyname](https://github.com/marijnh/w3c-keyname) (used by prosemirror-keymap) | 2.2.8 | MIT | `web/vendor/editor.bundle.js` |
+| [markdown-it](https://github.com/markdown-it/markdown-it) | 15.0.3 | MIT | `web/vendor/editor.bundle.js` |
+| [linkify-it](https://github.com/markdown-it/linkify-it) (used by markdown-it) | 6.1.0 | MIT | `web/vendor/editor.bundle.js` |
+| [mdurl](https://github.com/markdown-it/mdurl) (used by markdown-it) | 2.1.0 | MIT | `web/vendor/editor.bundle.js` |
+| [uc.micro](https://github.com/markdown-it/uc.micro) (used by markdown-it) | 3.0.0 | MIT | `web/vendor/editor.bundle.js` |
+| [punycode.js](https://github.com/mathiasbynens/punycode.js) (used by markdown-it) | 2.3.1 | MIT | `web/vendor/editor.bundle.js` |
+| [entities](https://github.com/fb55/entities) (used by markdown-it) | 8.1.0 | BSD-2-Clause | `web/vendor/editor.bundle.js` |
 
 The syntax-highlighting colours in `web/viewer.css` follow the highlight.js "GitHub" and
 "GitHub Dark" themes (BSD-3-Clause, same license as highlight.js below). The page styling is
@@ -17,6 +38,10 @@ written for this project and is inspired by GitHub's Markdown rendering; no GitH
 At run time the app uses components that are not redistributed with it: the .NET 10 Desktop
 Runtime (MIT, Microsoft) and the Microsoft Edge WebView2 Runtime (Microsoft software license,
 installed separately).
+
+The edit-mode bundle is built with [esbuild](https://github.com/evanw/esbuild) (MIT), a development
+tool that is not redistributed. The `argparse` dependency of markdown-it serves only its command-line
+tool and is not in the bundle.
 
 ---
 
@@ -321,4 +346,179 @@ License 2.0 and the Mozilla Public License 2.0. JustMd uses it under the Apache 
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+```
+
+## ProseMirror — MIT
+
+The `prosemirror-*` packages, `orderedmap`, `rope-sequence` and `w3c-keyname` carry the same license
+text, with these copyright lines:
+
+```
+Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others   (prosemirror-*, except prosemirror-tables)
+Copyright (C) 2015-2016 by Marijn Haverbeke <marijnh@gmail.com> and others         (prosemirror-tables)
+Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others        (orderedmap, w3c-keyname)
+Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin>                   (rope-sequence)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+## markdown-it — MIT
+
+```
+Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## linkify-it — MIT
+
+```
+Copyright (c) 2015 Vitaly Puzrin.
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## mdurl — MIT
+
+```
+Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin.
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+.parse() is based on Joyent's node.js `url` code:
+
+Copyright Joyent, Inc. and other Node contributors. All rights reserved.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to
+deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+```
+
+## punycode.js and uc.micro — MIT
+
+```
+Copyright Mathias Bynens <https://mathiasbynens.be/>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## entities — BSD-2-Clause
+
+```
+Copyright (c) Felix Böhm
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```

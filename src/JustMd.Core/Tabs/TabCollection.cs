@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using JustMd.Core.Editing;
 
 namespace JustMd.Core.Tabs
 {
@@ -26,18 +27,27 @@ namespace JustMd.Core.Tabs
     /// <summary>One open document. UI-free; the host attaches its file watcher via <see cref="Watcher"/>.</summary>
     public sealed class DocumentTab
     {
-        internal DocumentTab(int id, string path)
+        internal DocumentTab(int id, string? path, int untitledNumber = 0)
         {
             Id = id;
             Path = path;
+            UntitledNumber = untitledNumber;
         }
 
         public int Id { get; }
 
-        /// <summary>Normalised full path.</summary>
-        public string Path { get; }
+        /// <summary>Normalised full path; null while the tab is untitled.</summary>
+        public string? Path { get; internal set; }
 
-        public string FileName => System.IO.Path.GetFileName(Path);
+        public bool IsUntitled => Path == null;
+
+        /// <summary>The N of "Untitled N"; 0 for a tab opened from a file.</summary>
+        public int UntitledNumber { get; }
+
+        /// <summary>File name of <see cref="Path"/>; empty while the tab is untitled.</summary>
+        public string FileName => System.IO.Path.GetFileName(Path) ?? string.Empty;
+
+        public string DisplayName => IsUntitled ? "Untitled " + UntitledNumber : FileName;
 
         /// <summary>Last rendered (unsanitised) HTML, so switching back is instant.</summary>
         public string? CachedHtml { get; set; }
@@ -55,6 +65,26 @@ namespace JustMd.Core.Tabs
 
         /// <summary>The host's file watcher for this tab (disposed when the tab closes).</summary>
         public IDisposable? Watcher { get; set; }
+
+        public bool IsEditing { get; set; }
+
+        /// <summary>The page reports unsaved changes in the editor.</summary>
+        public bool IsDirty { get; set; }
+
+        /// <summary>The file changed on disk while there were unsaved changes.</summary>
+        public bool ExternalChangePending { get; set; }
+
+        /// <summary>Incremented each time the editor is rebuilt from disk, so the page can tell whether its state is current.</summary>
+        public int EditRevision { get; set; }
+
+        /// <summary>The file as last read for editing or saved.</summary>
+        public DocumentText? Document { get; set; }
+
+        /// <summary>The text last written, to recognise the watcher event caused by our own save.</summary>
+        public string? LastSavedText { get; set; }
+
+        /// <summary>The file was above the editing size limit when last read.</summary>
+        public bool TooLargeToEdit { get; set; }
     }
 
     /// <summary>Ordered set of open documents with one active tab.</summary>
@@ -62,6 +92,7 @@ namespace JustMd.Core.Tabs
     {
         private readonly List<DocumentTab> _tabs = new();
         private int _nextId = 1;
+        private int _nextUntitledNumber = 1;
 
         public IReadOnlyList<DocumentTab> Tabs => _tabs;
 
@@ -96,6 +127,45 @@ namespace JustMd.Core.Tabs
             return tab;
         }
 
+        /// <summary>Adds a tab with no file at the end. Numbers are not reused within a session. Does not change the active tab.</summary>
+        public DocumentTab NewUntitled()
+        {
+            var tab = new DocumentTab(_nextId++, null, _nextUntitledNumber++);
+            _tabs.Add(tab);
+            return tab;
+        }
+
+        /// <summary>
+        /// Gives <paramref name="tab"/> a new path (first save or Save As). Another tab already
+        /// showing that file is removed and returned as <paramref name="displaced"/>; the caller
+        /// disposes its watcher. Returns false, changing nothing, for an invalid path.
+        /// </summary>
+        public bool SetPath(DocumentTab tab, string path, out DocumentTab? displaced)
+        {
+            displaced = null;
+            if (!_tabs.Contains(tab))
+            {
+                throw new ArgumentException("The tab is not part of this collection.", nameof(tab));
+            }
+
+            string? normalized = DocumentPaths.Normalize(path);
+            if (normalized == null)
+            {
+                return false;
+            }
+
+            DocumentTab? other = Find(normalized);
+            if (other != null && !ReferenceEquals(other, tab))
+            {
+                Close(other);
+                displaced = other;
+            }
+
+            tab.Path = normalized;
+            return true;
+        }
+
+        /// <summary>The tab showing <paramref name="path"/>. Untitled tabs have no path, so are never returned.</summary>
         public DocumentTab? Find(string? path)
         {
             string? normalized = DocumentPaths.Normalize(path);

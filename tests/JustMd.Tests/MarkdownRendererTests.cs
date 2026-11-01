@@ -1,4 +1,6 @@
+using System.Text;
 using JustMd.Core;
+using JustMd.Core.Editing;
 
 namespace JustMd.Tests
 {
@@ -188,6 +190,27 @@ namespace JustMd.Tests
             string html = _renderer.RenderHtml("![x](a.png)", null);
 
             Assert.Contains("src=\"a.png\"", html);
+        }
+
+        [Fact]
+        public void Rtl_wrapper_renders_a_div_around_parsed_markdown()
+        {
+            string text = DocumentText.Parse("# Title\n\nBody\n", new UTF8Encoding(false)).With("# Title\n\nBody", true).Compose();
+
+            string html = _renderer.RenderHtml(text, null);
+
+            Assert.Matches("^<div dir=\"rtl\">\\s*<h1 [^>]*>Title</h1>\\s*<p>Body</p>\\s*</div>\\s*$", html);
+        }
+
+        [Fact]
+        public void Rtl_wrapper_after_front_matter_renders_the_same()
+        {
+            string text = DocumentText.Parse("---\nt: Secret\n---\n\n# Title\n", new UTF8Encoding(false)).With("# Title", true).Compose();
+
+            string html = _renderer.RenderHtml(text, null);
+
+            Assert.DoesNotContain("Secret", html);
+            Assert.Matches("^<div dir=\"rtl\">\\s*<h1 ", html);
         }
 
         [Fact]

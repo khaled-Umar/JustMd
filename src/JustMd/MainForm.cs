@@ -142,6 +142,19 @@ namespace JustMd
                 return;
             }
 
+            // Whether a tab really has unsaved changes is only known after asking the page, so
+            // closing is cancelled here and retried once the user's decision has been carried out.
+            if (!_closeApproved && _tabs.Tabs.Any(t => t.IsEditing))
+            {
+                e.Cancel = true;
+                if (IsHandleCreated)
+                {
+                    BeginInvoke(() => RunEditFlow(ConfirmAppCloseAsync));
+                }
+
+                return;
+            }
+
             Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
             _settings.Window = new WindowPlacement
             {
@@ -280,6 +293,15 @@ namespace JustMd
 
         private Action? GetShortcutAction(Keys keyData)
         {
+            if (_tabs.Active?.IsEditing == true)
+            {
+                Action? editorAction = GetEditorShortcutAction(keyData);
+                if (editorAction != null)
+                {
+                    return editorAction;
+                }
+            }
+
             if ((keyData & Keys.Modifiers) == Keys.Control)
             {
                 Keys key = keyData & Keys.KeyCode;
@@ -300,6 +322,19 @@ namespace JustMd
             {
                 case Keys.Control | Keys.O:
                     return ShowOpenDialog;
+
+                case Keys.Control | Keys.N:
+                    return NewFile;
+
+                case Keys.F2:
+                    return ToggleEditActiveTab;
+
+                // Do nothing outside edit mode, but must stay ours: the browser would save the page.
+                case Keys.Control | Keys.S:
+                    return () => SaveTab(_tabs.Active);
+
+                case Keys.Control | Keys.Shift | Keys.S:
+                    return () => SaveTabAs(_tabs.Active);
 
                 case Keys.F5:
                 case Keys.Control | Keys.R:
@@ -354,10 +389,7 @@ namespace JustMd
                 case Keys.BrowserStop:
                 case Keys.BrowserSearch:
                 case Keys.BrowserFavorites:
-                case Keys.Control | Keys.S:
-                case Keys.Control | Keys.Shift | Keys.S:
                 case Keys.Control | Keys.U:
-                case Keys.Control | Keys.N:
                 case Keys.Control | Keys.Shift | Keys.N:
                 case Keys.Control | Keys.Shift | Keys.T:
                 case Keys.Control | Keys.H:
@@ -395,8 +427,8 @@ namespace JustMd
                 RestoreDirectory = true,
             };
 
-            string? folder = _tabs.Active == null ? null : Path.GetDirectoryName(_tabs.Active.Path);
-            if (folder != null && Directory.Exists(folder))
+            string? folder = NearestDocumentFolder();
+            if (folder != null)
             {
                 dialog.InitialDirectory = folder;
             }

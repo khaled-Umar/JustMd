@@ -28,6 +28,29 @@ namespace JustMd.Core.Settings
         [JsonPropertyName("activeIndex")]
         public int ActiveIndex { get; set; } = -1;
 
+        /// <summary>
+        /// Captures the tabs to remember; untitled ones are skipped. If <paramref name="active"/>
+        /// is untitled, the nearest saved tab before it becomes the active one.
+        /// </summary>
+        public static SessionState From(IEnumerable<DocumentTab> tabs, DocumentTab? active)
+        {
+            var state = new SessionState();
+            foreach (DocumentTab tab in tabs)
+            {
+                if (tab.Path != null)
+                {
+                    state.Tabs.Add(new SessionTab { Path = tab.Path, ScrollTop = Math.Round(tab.View?.ScrollTop ?? 0) });
+                }
+
+                if (ReferenceEquals(tab, active))
+                {
+                    state.ActiveIndex = state.Tabs.Count - 1;
+                }
+            }
+
+            return state;
+        }
+
         public SessionState Clone() => new()
         {
             Tabs = Tabs.Select(t => new SessionTab { Path = t.Path, ScrollTop = t.ScrollTop }).ToList(),
