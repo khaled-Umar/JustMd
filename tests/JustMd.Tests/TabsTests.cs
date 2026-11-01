@@ -331,6 +331,13 @@ namespace JustMd.Tests
             Assert.DoesNotContain("\\", InstanceProtocol.PipeName("dom\\user name", 1));
             Assert.StartsWith(@"Local\", InstanceProtocol.MutexName("S-1-5-21-1", 1));
         }
+
+        [Fact]
+        public void Legacy_mutex_name_matches_what_1_0_0_created()
+        {
+            Assert.Equal(@"Local\JustMdViewer.Instance.S-1-5-21-1_2.3", InstanceProtocol.LegacyMutexName("S-1-5-21-1 2", 3));
+            Assert.NotEqual(InstanceProtocol.MutexName("S-1-5-21-1 2", 3), InstanceProtocol.LegacyMutexName("S-1-5-21-1 2", 3));
+        }
     }
 
     public class SessionCaptureTests
