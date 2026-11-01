@@ -1,13 +1,13 @@
 // Parses one or more .ico files and lists every frame. Exits non-zero if the
 // app icon is missing a required size or any frame is malformed.
 //
-//   node verify-ico.mjs ../../assets/icon/JustMdViewer.ico ../../docs/favicon.ico
+//   node verify-ico.mjs ../../assets/icon/JustMd.ico ../../docs/favicon.ico
 
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 
 const REQUIRED = {
-  'JustMdViewer.ico': [16, 20, 24, 32, 40, 48, 64, 128, 256],
+  'JustMd.ico': [16, 20, 24, 32, 40, 48, 64, 128, 256],
   'favicon.ico': [16, 32, 48],
 };
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

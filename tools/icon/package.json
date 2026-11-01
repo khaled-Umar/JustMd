@@ -1,14 +1,14 @@
 {
-  "name": "justmdviewer-icon-generator",
+  "name": "justmd-icon-generator",
   "version": "1.0.0",
   "private": true,
-  "description": "Regenerates the JustMdViewer logo, wordmark, app icon (.ico/.png) and site favicons from source geometry.",
+  "description": "Regenerates the JustMd logo, wordmark, app icon (.ico/.png) and site favicons from source geometry.",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "build": "node generate.mjs",
     "preview": "node generate.mjs --preview preview",
-    "verify": "node verify-ico.mjs ../../assets/icon/JustMdViewer.ico ../../docs/favicon.ico"
+    "verify": "node verify-ico.mjs ../../assets/icon/JustMd.ico ../../docs/favicon.ico"
   },
   "engines": {
     "node": ">=18"

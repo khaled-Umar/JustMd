@@ -1,11 +1,11 @@
 # Third-party notices
 
-JustMdViewer is released under the MIT License (see `LICENSE`). It ships or uses the following
+JustMd is released under the MIT License (see `LICENSE`). It ships or uses the following
 third-party components. Their licenses are reproduced below.
 
 | Component | Version | License | Where it is used |
 |-----------|---------|---------|------------------|
-| [Markdig](https://github.com/xoofx/markdig) | 1.4.0 | BSD-2-Clause | Markdown to HTML (`JustMdViewer.Core.dll` depends on `Markdig.dll`) |
+| [Markdig](https://github.com/xoofx/markdig) | 1.4.0 | BSD-2-Clause | Markdown to HTML (`JustMd.Core.dll` depends on `Markdig.dll`) |
 | [Microsoft.Web.WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2) SDK | 1.0.4258.31 | BSD-3-Clause (Microsoft) | `Microsoft.Web.WebView2.Core.dll`, `Microsoft.Web.WebView2.WinForms.dll`, `runtimes/*/native/WebView2Loader.dll` |
 | [highlight.js](https://highlightjs.org/) (common-languages build from `@highlightjs/cdn-assets`, plus the `powershell` and `dockerfile` grammars) | 11.12.0 | BSD-3-Clause | `web/vendor/highlight.min.js`, `web/vendor/languages/*.min.js` |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.16 | Apache-2.0 or MPL-2.0 (dual; used under Apache-2.0) | `web/vendor/purify.min.js` |
@@ -116,7 +116,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## DOMPurify — Apache License 2.0
 
 DOMPurify is Copyright (c) Cure53 and other contributors and is dual-licensed under the Apache
-License 2.0 and the Mozilla Public License 2.0. JustMdViewer uses it under the Apache License 2.0:
+License 2.0 and the Mozilla Public License 2.0. JustMd uses it under the Apache License 2.0:
 
 ```
 

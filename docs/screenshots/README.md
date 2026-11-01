@@ -12,7 +12,7 @@ To add real ones:
    <picture>
      <source srcset="screenshots/app-dark.png" media="(prefers-color-scheme: dark)">
      <img src="screenshots/app-light.png" width="1280" height="800"
-          alt="JustMdViewer showing a rendered Markdown document">
+          alt="JustMd showing a rendered Markdown document">
    </picture>
    ```
 
