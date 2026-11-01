@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
+using JustMd.Core.Messaging;
 using JustMd.Core.Spelling;
 
 namespace JustMd.Spelling
@@ -26,6 +28,7 @@ namespace JustMd.Spelling
         private ISpellingEngine? _engine;
         private DocumentSpeller? _speller;
         private bool _disposed;
+        private bool _waited;
 
         /// <param name="createEngine">Called on the worker thread.</param>
         /// <param name="readLanguages">Called on the worker thread.</param>
@@ -38,10 +41,14 @@ namespace JustMd.Spelling
         }
 
         /// <summary>
-        /// Whether any language can be checked. The first call waits for the worker to find out,
-        /// but not for long: a stuck spell checker must not freeze the window, and it reads false until it answers.
+        /// Whether any language can be checked. The first call waits for the worker to find out, but
+        /// not for long and only that once: a stuck spell checker must not freeze the window, and it
+        /// reads false until it answers.
         /// </summary>
-        public bool IsAvailable => EnsureStarted() && _ready.Wait(AvailabilityWaitMilliseconds) && _speller != null;
+        public bool IsAvailable => EnsureStarted() && Ready() && _speller != null;
+
+        /// <summary>Whether the spell checker covers the script of this language. Never waits, and is false until the worker has answered.</summary>
+        public bool Checks(string languageTag) => _ready.IsSet && _speller != null && _speller.Checks(Scripts.OfLanguage(languageTag));
 
         /// <summary>Checks blocks of text; scans wait behind everything else. <paramref name="done"/> gets one list per block, on the UI thread.</summary>
         public void Check(int tabId, bool scan, IReadOnlyList<string> blocks, Action<IReadOnlyList<IReadOnlyList<SpellingError>>> done)
@@ -71,9 +78,9 @@ namespace JustMd.Spelling
                 IReadOnlyList<string> suggestions = Array.Empty<string>();
                 try
                 {
-                    if (_engine != null && _languages.Contains(language))
+                    if (_speller != null && _languages.Contains(language))
                     {
-                        suggestions = _engine.Suggest(language, word);
+                        suggestions = _speller.Suggest(language, word).Take(WebMessageParser.MaxSpellingSuggestions).ToList();
                     }
                 }
                 catch (Exception)
@@ -136,6 +143,27 @@ namespace JustMd.Spelling
                 _queue.Enqueue(tabId, urgent, work);
                 Monitor.PulseAll(_gate);
             }
+        }
+
+        // Waits once: a stuck spell checker must not stall every entry into edit mode.
+        private bool Ready()
+        {
+            if (_ready.IsSet)
+            {
+                return true;
+            }
+
+            lock (_gate)
+            {
+                if (_waited)
+                {
+                    return false;
+                }
+
+                _waited = true;
+            }
+
+            return _ready.Wait(AvailabilityWaitMilliseconds);
         }
 
         private bool EnsureStarted()
@@ -209,8 +237,8 @@ namespace JustMd.Spelling
         {
             ISpellingEngine engine = _createEngine();
             _engine = engine;
-            IReadOnlyDictionary<TextScript, string> assigned = SpellingLanguages.Assign(_readLanguages(), engine.IsSupported);
-            _languages.UnionWith(assigned.Values);
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned = SpellingLanguages.Assign(_readLanguages(), engine.IsSupported);
+            _languages.UnionWith(assigned.Values.SelectMany(l => l));
             if (assigned.Count > 0)
             {
                 _speller = new DocumentSpeller(engine, assigned);

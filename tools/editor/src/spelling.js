@@ -97,6 +97,24 @@ function isWordAt(doc, from, to, word) {
   return doc.textBetween(from, to, '\n', '\ufffc') === word;
 }
 
+// The checker saw other scripts and code as spaces, so to it `file ملف file` and `the `x` the`
+// repeat a word. A delete is kept only if the real text has the same word, whole and outside
+// code, right before it with nothing but whitespace in between, and this word is whole too: in
+// `file fileملف` the delete would eat part of the longer word. All of it errs on not deleting.
+function repeatsPrevious(doc, from, word) {
+  const $from = doc.resolve(from);
+  const start = $from.start();
+  const to = from + word.length;
+  const after = doc.textBetween(to, Math.min(to + 2, $from.end()), '\n', '￼');
+  if (/^[\p{L}\p{N}\p{M}]/u.test(after) || (after && doc.rangeHasMark(to, to + 1, doc.type.schema.marks.code))) return false;
+  const before = doc.textBetween(start, from, '\n', '￼');
+  const gap = before.length - before.trimEnd().length;
+  const prevFrom = from - gap - word.length;
+  if (gap === 0 || prevFrom < start) return false;
+  if (prevFrom > start && !/\s/.test(doc.textBetween(prevFrom - 1, prevFrom, '\n', '￼'))) return false;
+  return isWordAt(doc, prevFrom, from - gap, word);
+}
+
 function isSuggestion(text) {
   return typeof text === 'string' && SUGGESTION.test(text);
 }
@@ -173,8 +191,10 @@ function applyMeta(value, meta, tr) {
   return { ...value, cleared: new Set(value.cleared).add(wordKey(word, language)), decorations: value.decorations.remove(found) };
 }
 
-function plugin({ request, delay = 500, maxBlockLength = 65536, maxRequestLength = 131072, maxBlocks = 1000 }) {
+function plugin({ request, delay = 500, maxBlockLength = 65536, maxRequestLength = 131072, maxBlocks = 1000, maxScanLength = 16384 }) {
   const limits = { maxBlocks, maxBlockLength, maxRequestLength };
+  // Smaller requests for a scan, so urgent work gets between them.
+  const scanLimits = { ...limits, maxRequestLength: Math.min(maxScanLength, maxRequestLength) };
   return new Plugin({
     key,
     state: {
@@ -223,7 +243,7 @@ function plugin({ request, delay = 500, maxBlockLength = 65536, maxRequestLength
         if (!hasWork(dirty)) return;
         const scan = dirty === 'all';
         const sent = [];
-        for (const chunk of chunkBlocks(checkableBlocks(state.doc, scan ? undefined : dirty), limits)) {
+        for (const chunk of chunkBlocks(checkableBlocks(state.doc, scan ? undefined : dirty), scan ? scanLimits : limits)) {
           const id = request(chunk.map((block) => block.text), scan);
           if (id) sent.push({ id, blocks: chunk });
         }
@@ -274,7 +294,7 @@ function results(state, requestId, blocks) {
       const from = mapping.map(pos + 1 + error.start, -1);
       const to = mapping.map(pos + 1 + error.start + error.length, 1);
       const place = `${from}:${to}`;
-      if (taken.has(place) || !isWordAt(doc, from, to, error.word)) continue;
+      if (taken.has(place) || !isWordAt(doc, from, to, error.word) || (error.action === ACTION_DELETE && !repeatsPrevious(doc, from, error.word))) continue;
       taken.add(place);
       const { word, language, action, replacement } = error;
       add.push(Decoration.inline(from, to, { class: 'spell-error' }, { word, language, action, replacement }));

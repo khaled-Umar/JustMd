@@ -514,6 +514,9 @@ namespace JustMd.Core.Messaging
         /// <summary>The page may ask for spell checks, for "edit".</summary>
         public bool Spelling { get; set; }
 
+        /// <summary>The browser's own checker stays on, for "edit": spelling is off, or the Windows display language is in a script JustMd does not check, so the two never underline the same word.</summary>
+        public bool NativeSpelling { get; set; }
+
         /// <summary>The errors in each block of the request, in request order, for "spellResult".</summary>
         public IReadOnlyList<IReadOnlyList<SpellingErrorInfo>>? Blocks { get; set; }
 

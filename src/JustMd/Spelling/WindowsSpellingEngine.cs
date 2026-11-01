@@ -7,9 +7,10 @@ using JustMd.Core.Spelling;
 namespace JustMd.Spelling
 {
     /// <summary>
-    /// The Windows Spell Checking API. Nothing here throws: without the API the engine supports no
-    /// language, and a call that fails finds no errors. A failing HRESULT can surface as many
-    /// exception types (E_INVALIDARG is an ArgumentException), so each call catches them all.
+    /// The Windows Spell Checking API. Without the API the engine supports no language. Only
+    /// <see cref="Check"/> throws when it fails, because no errors would read as "all words are
+    /// fine". A failing HRESULT can surface as many exception types (E_INVALIDARG is an
+    /// ArgumentException), so every other call catches them all.
     /// </summary>
     internal sealed class WindowsSpellingEngine : ISpellingEngine
     {
@@ -42,9 +43,18 @@ namespace JustMd.Spelling
                 IEnumSpellingError? found = null;
                 try
                 {
-                    found = Checker(language)?.Check(text);
-                    while (found != null && found.Next(out ISpellingError? error) == 0 && error != null)
+                    ISpellChecker checker = Checker(language) ?? throw new InvalidOperationException("No spell checker for " + language);
+                    found = checker.Check(text);
+                    while (found != null)
                     {
+                        // S_FALSE ends the list; a failure must not look like the end of it.
+                        int result = found.Next(out ISpellingError? error);
+                        Marshal.ThrowExceptionForHR(result);
+                        if (result != 0 || error == null)
+                        {
+                            break;
+                        }
+
                         try
                         {
                             int action = error.get_CorrectiveAction();
@@ -62,10 +72,6 @@ namespace JustMd.Spelling
                             Release(error);
                         }
                     }
-                }
-                catch (Exception)
-                {
-                    // Keep what was found before the failure.
                 }
                 finally
                 {

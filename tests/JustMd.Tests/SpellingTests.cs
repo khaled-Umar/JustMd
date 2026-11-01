@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using JustMd.Core.Messaging;
 using JustMd.Core.Spelling;
 
 namespace JustMd.Tests
@@ -11,10 +12,16 @@ namespace JustMd.Tests
         private const string Tashkeel = "مُحَمَّد"; // Muhammad, fully vowelled
         private const string Emoji = "\U0001F600";
 
-        private static readonly IReadOnlyDictionary<TextScript, string> Both = new Dictionary<TextScript, string>
+        private static readonly IReadOnlyDictionary<TextScript, IReadOnlyList<string>> Both = new Dictionary<TextScript, IReadOnlyList<string>>
         {
-            [TextScript.Latin] = "en-US",
-            [TextScript.Arabic] = "ar-SA",
+            [TextScript.Latin] = new[] { "en-US" },
+            [TextScript.Arabic] = new[] { "ar-SA" },
+        };
+
+        private static readonly IReadOnlyDictionary<TextScript, IReadOnlyList<string>> TwoLatin = new Dictionary<TextScript, IReadOnlyList<string>>
+        {
+            [TextScript.Latin] = new[] { "de-DE", "en-US" },
+            [TextScript.Arabic] = new[] { "ar-SA" },
         };
 
         // ---------- scripts ----------
@@ -128,46 +135,65 @@ namespace JustMd.Tests
         // ---------- assigning languages ----------
 
         [Fact]
-        public void Assign_finds_one_language_per_script()
+        public void Assign_finds_the_languages_of_each_script()
         {
-            IReadOnlyDictionary<TextScript, string> assigned =
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned =
                 SpellingLanguages.Assign(new[] { "en-US", "ar-SA" }, _ => true);
 
             Assert.Equal(2, assigned.Count);
-            Assert.Equal("en-US", assigned[TextScript.Latin]);
-            Assert.Equal("ar-SA", assigned[TextScript.Arabic]);
+            Assert.Equal(new[] { "en-US" }, assigned[TextScript.Latin]);
+            Assert.Equal(new[] { "ar-SA" }, assigned[TextScript.Arabic]);
+        }
+
+        [Fact]
+        public void Assign_keeps_every_usable_language_of_a_script_in_order()
+        {
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned =
+                SpellingLanguages.Assign(new[] { "de-DE", "ar-SA", "en-US" }, _ => true);
+
+            Assert.Equal(new[] { "de-DE", "en-US" }, assigned[TextScript.Latin]);
+            Assert.Equal(new[] { "ar-SA" }, assigned[TextScript.Arabic]);
+        }
+
+        [Fact]
+        public void Assign_does_not_repeat_a_language_two_tags_fall_back_to()
+        {
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned =
+                SpellingLanguages.Assign(new[] { "en-GB", "en-US" }, tag => tag == "en");
+
+            Assert.Equal(new[] { "en" }, assigned[TextScript.Latin]);
         }
 
         [Fact]
         public void Assign_leaves_a_script_without_a_language_out()
         {
-            IReadOnlyDictionary<TextScript, string> assigned = SpellingLanguages.Assign(new[] { "ar-SA" }, _ => true);
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned = SpellingLanguages.Assign(new[] { "ar-SA" }, _ => true);
 
-            Assert.Equal("ar-SA", Assert.Single(assigned).Value);
+            Assert.Equal(new[] { "ar-SA" }, Assert.Single(assigned).Value);
         }
 
         [Fact]
         public void Assign_falls_back_to_the_primary_subtag()
         {
-            IReadOnlyDictionary<TextScript, string> assigned = SpellingLanguages.Assign(new[] { "en-GB" }, tag => tag == "en");
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned = SpellingLanguages.Assign(new[] { "en-GB" }, tag => tag == "en");
 
-            Assert.Equal("en", assigned[TextScript.Latin]);
+            Assert.Equal(new[] { "en" }, assigned[TextScript.Latin]);
         }
 
         [Fact]
         public void Assign_prefers_the_tag_over_its_primary_subtag()
         {
-            IReadOnlyDictionary<TextScript, string> assigned = SpellingLanguages.Assign(new[] { "en-GB" }, _ => true);
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned = SpellingLanguages.Assign(new[] { "en-GB" }, _ => true);
 
-            Assert.Equal("en-GB", assigned[TextScript.Latin]);
+            Assert.Equal(new[] { "en-GB" }, assigned[TextScript.Latin]);
         }
 
         [Fact]
         public void Assign_takes_the_script_from_the_subtag()
         {
-            IReadOnlyDictionary<TextScript, string> assigned = SpellingLanguages.Assign(new[] { "sr-Latn" }, _ => true);
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned = SpellingLanguages.Assign(new[] { "sr-Latn" }, _ => true);
 
-            Assert.Equal("sr-Latn", assigned[TextScript.Latin]);
+            Assert.Equal(new[] { "sr-Latn" }, assigned[TextScript.Latin]);
         }
 
         [Fact]
@@ -178,12 +204,12 @@ namespace JustMd.Tests
         }
 
         [Fact]
-        public void Assign_skips_unsupported_languages_and_takes_the_next_of_that_script()
+        public void Assign_skips_unsupported_languages()
         {
-            IReadOnlyDictionary<TextScript, string> assigned =
+            IReadOnlyDictionary<TextScript, IReadOnlyList<string>> assigned =
                 SpellingLanguages.Assign(new[] { "xx-XX", "de-DE", "en-US" }, tag => tag is "de-DE" or "en-US");
 
-            Assert.Equal("de-DE", assigned[TextScript.Latin]);
+            Assert.Equal(new[] { "de-DE", "en-US" }, assigned[TextScript.Latin]);
         }
 
         [Fact]
@@ -243,7 +269,7 @@ namespace JustMd.Tests
         {
             const string arabic = "محمد";
             var engine = new FakeEngine();
-            var latinOnly = new Dictionary<TextScript, string> { [TextScript.Latin] = "en-US" };
+            var latinOnly = new Dictionary<TextScript, IReadOnlyList<string>> { [TextScript.Latin] = new[] { "en-US" } };
 
             new DocumentSpeller(engine, latinOnly).Check(arabic);
 
@@ -292,6 +318,212 @@ namespace JustMd.Tests
             var engine = new FakeEngine { Answers = { ["en-US"] = new[] { new SpellingError(0, 3, 1, null) } } };
 
             Assert.Single(new DocumentSpeller(engine, Both).Check("abc"));
+        }
+
+        [Fact]
+        public void An_error_needs_every_language_of_the_script_and_keeps_the_first_ones_details()
+        {
+            var engine = new FakeEngine
+            {
+                Answers =
+                {
+                    ["de-DE"] = new[] { new SpellingError(0, 3, 1, null), new SpellingError(5, 4, 2, "fix") },
+                    ["en-US"] = new[] { new SpellingError(5, 4, 3, "other") },
+                },
+            };
+
+            SpellingError error = Assert.Single(new DocumentSpeller(engine, TwoLatin).Check("abc  defg"));
+
+            Assert.Equal(new SpellingError(5, 4, 2, "fix") { Language = "de-DE" }, error);
+        }
+
+        [Fact]
+        public void An_error_at_a_different_span_in_another_language_is_not_the_same_error()
+        {
+            var engine = new FakeEngine
+            {
+                Answers =
+                {
+                    ["de-DE"] = new[] { new SpellingError(0, 4, 1, null) },
+                    ["en-US"] = new[] { new SpellingError(0, 3, 1, null) },
+                },
+            };
+
+            Assert.Empty(new DocumentSpeller(engine, TwoLatin).Check("abcd"));
+        }
+
+        [Fact]
+        public void Later_languages_are_not_asked_when_the_first_finds_nothing()
+        {
+            var engine = new FakeEngine();
+
+            Assert.Empty(new DocumentSpeller(engine, TwoLatin).Check("abc"));
+
+            Assert.Equal("de-DE", Assert.Single(engine.Checked).Language);
+        }
+
+        [Fact]
+        public void Later_languages_are_not_asked_once_nothing_is_left()
+        {
+            var threeLatin = new Dictionary<TextScript, IReadOnlyList<string>> { [TextScript.Latin] = new[] { "de-DE", "en-US", "fr-FR" } };
+            var engine = new FakeEngine { Answers = { ["de-DE"] = new[] { new SpellingError(0, 3, 1, null) } } };
+
+            Assert.Empty(new DocumentSpeller(engine, threeLatin).Check("abc"));
+
+            Assert.Equal(new[] { "de-DE", "en-US" }, engine.Checked.Select(c => c.Language));
+        }
+
+        [Fact]
+        public void Bogus_offsets_of_the_first_language_do_not_survive_the_others()
+        {
+            var bogus = new[] { new SpellingError(0, 40, 1, null) };
+            var engine = new FakeEngine { Answers = { ["de-DE"] = bogus, ["en-US"] = bogus } };
+
+            Assert.Empty(new DocumentSpeller(engine, TwoLatin).Check("abc"));
+        }
+
+        [Fact]
+        public void A_later_language_that_cannot_answer_does_not_clear_the_errors()
+        {
+            var engine = new FakeEngine { Answers = { ["de-DE"] = new[] { new SpellingError(0, 3, 1, null) } }, Broken = { "en-US" } };
+
+            SpellingError error = Assert.Single(new DocumentSpeller(engine, TwoLatin).Check("abc"));
+
+            Assert.Equal("de-DE", error.Language);
+        }
+
+        [Fact]
+        public void A_broken_language_in_the_middle_leaves_the_others_to_agree()
+        {
+            var threeLatin = new Dictionary<TextScript, IReadOnlyList<string>> { [TextScript.Latin] = new[] { "de-DE", "en-US", "fr-FR" } };
+            var engine = new FakeEngine
+            {
+                Answers =
+                {
+                    ["de-DE"] = new[] { new SpellingError(0, 3, 1, null), new SpellingError(4, 3, 1, null) },
+                    ["fr-FR"] = new[] { new SpellingError(4, 3, 1, null) },
+                },
+                Broken = { "en-US" },
+            };
+
+            SpellingError error = Assert.Single(new DocumentSpeller(engine, threeLatin).Check("abc def"));
+
+            Assert.Equal(4, error.Start);
+        }
+
+        [Fact]
+        public void When_the_first_language_cannot_answer_the_next_takes_its_place()
+        {
+            var engine = new FakeEngine { Answers = { ["en-US"] = new[] { new SpellingError(0, 3, 2, "fix") } }, Broken = { "de-DE" } };
+
+            SpellingError error = Assert.Single(new DocumentSpeller(engine, TwoLatin).Check("abc"));
+
+            Assert.Equal(new SpellingError(0, 3, 2, "fix") { Language = "en-US" }, error);
+        }
+
+        [Fact]
+        public void A_replacement_first_language_has_its_bogus_offsets_dropped()
+        {
+            var engine = new FakeEngine { Answers = { ["en-US"] = new[] { new SpellingError(0, 40, 1, null) } }, Broken = { "de-DE" } };
+
+            Assert.Empty(new DocumentSpeller(engine, TwoLatin).Check("abc"));
+        }
+
+        [Fact]
+        public void A_script_whose_languages_all_fail_does_not_cost_the_other_script_its_errors()
+        {
+            const string arabic = "\u0645\u062D\u0645\u062F";
+            var engine = new FakeEngine { Answers = { ["ar-SA"] = new[] { new SpellingError(4, 4, 1, null) } }, Broken = { "de-DE", "en-US" } };
+
+            SpellingError error = Assert.Single(new DocumentSpeller(engine, TwoLatin).Check("abc " + arabic));
+
+            Assert.Equal("ar-SA", error.Language);
+        }
+
+        [Fact]
+        public void Checks_covers_the_scripts_that_have_a_language()
+        {
+            var latinOnly = new Dictionary<TextScript, IReadOnlyList<string>> { [TextScript.Latin] = new[] { "en-US" } };
+            var speller = new DocumentSpeller(new FakeEngine(), latinOnly);
+
+            Assert.True(speller.Checks(TextScript.Latin));
+            Assert.False(speller.Checks(TextScript.Arabic));
+            Assert.False(speller.Checks(null));
+        }
+
+        // ---------- suggestions ----------
+
+        [Fact]
+        public void Suggestions_come_from_all_languages_of_the_script_without_repeats()
+        {
+            var engine = new FakeEngine
+            {
+                Suggestions =
+                {
+                    ["de-DE"] = new[] { "a", "b" },
+                    ["en-US"] = new[] { "b", "c" },
+                    ["ar-SA"] = new[] { "z" },
+                },
+            };
+
+            Assert.Equal(new[] { "a", "b", "c" }, new DocumentSpeller(engine, TwoLatin).Suggest("de-DE", "word"));
+            Assert.Equal(new[] { ("de-DE", "word"), ("en-US", "word") }, engine.Suggested);
+        }
+
+        [Fact]
+        public void A_later_language_of_the_script_gets_the_same_suggestions()
+        {
+            var engine = new FakeEngine
+            {
+                Suggestions =
+                {
+                    ["de-DE"] = new[] { "a" },
+                    ["en-US"] = new[] { "b" },
+                },
+            };
+
+            Assert.Equal(new[] { "a", "b" }, new DocumentSpeller(engine, TwoLatin).Suggest("en-US", "word"));
+        }
+
+        [Fact]
+        public void Suggestions_take_turns_between_the_languages()
+        {
+            var engine = new FakeEngine
+            {
+                Suggestions =
+                {
+                    ["de-DE"] = new[] { "a", "b", "c" },
+                    ["en-US"] = new[] { "x" },
+                },
+            };
+
+            Assert.Equal(new[] { "a", "x", "b", "c" }, new DocumentSpeller(engine, TwoLatin).Suggest("de-DE", "word"));
+        }
+
+        [Fact]
+        public void A_first_language_with_a_full_list_does_not_crowd_out_a_later_one()
+        {
+            var engine = new FakeEngine
+            {
+                Suggestions =
+                {
+                    ["de-DE"] = new[] { "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8" },
+                    ["en-US"] = new[] { "e1", "e2" },
+                },
+            };
+
+            IEnumerable<string> shown = new DocumentSpeller(engine, TwoLatin).Suggest("de-DE", "word").Take(WebMessageParser.MaxSpellingSuggestions);
+
+            Assert.Equal(new[] { "d1", "e1", "d2", "e2", "d3", "d4", "d5", "d6" }, shown);
+        }
+
+        [Fact]
+        public void A_language_not_in_use_has_no_suggestions()
+        {
+            var engine = new FakeEngine { Suggestions = { ["fr-FR"] = new[] { "a" } } };
+
+            Assert.Empty(new DocumentSpeller(engine, TwoLatin).Suggest("fr-FR", "word"));
+            Assert.Empty(engine.Suggested);
         }
 
         // ---------- the worker's queue ----------
@@ -369,15 +601,30 @@ namespace JustMd.Tests
 
             public Dictionary<string, SpellingError[]> Answers { get; } = new();
 
+            public HashSet<string> Broken { get; } = new();
+
+            public List<(string Language, string Word)> Suggested { get; } = new();
+
+            public Dictionary<string, string[]> Suggestions { get; } = new();
+
             public bool IsSupported(string language) => true;
 
             public IReadOnlyList<SpellingError> Check(string language, string text)
             {
                 Checked.Add((language, text));
+                if (Broken.Contains(language))
+                {
+                    throw new InvalidOperationException("No spell checker for " + language);
+                }
+
                 return Answers.TryGetValue(language, out SpellingError[]? errors) ? errors : Array.Empty<SpellingError>();
             }
 
-            public IReadOnlyList<string> Suggest(string language, string word) => Array.Empty<string>();
+            public IReadOnlyList<string> Suggest(string language, string word)
+            {
+                Suggested.Add((language, word));
+                return Suggestions.TryGetValue(language, out string[]? suggestions) ? suggestions : Array.Empty<string>();
+            }
 
             public void Ignore(string language, string word)
             {

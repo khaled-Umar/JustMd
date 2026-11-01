@@ -495,5 +495,12 @@ namespace JustMd.Tests
             Assert.DoesNotContain("spelling", new HostMessage { Type = "edit" }.ToJson());
             Assert.Contains("\"spelling\":true", new HostMessage { Type = "edit", Spelling = true }.ToJson());
         }
+
+        [Fact]
+        public void Edit_message_only_mentions_native_spelling_when_it_stays_on()
+        {
+            Assert.DoesNotContain("nativeSpelling", new HostMessage { Type = "edit" }.ToJson());
+            Assert.Contains("\"nativeSpelling\":true", new HostMessage { Type = "edit", NativeSpelling = true }.ToJson());
+        }
     }
 }

@@ -89,7 +89,7 @@ namespace JustMd
 #else
             settings.AreDevToolsEnabled = false;
 #endif
-            settings.AreDefaultContextMenusEnabled = true; // trimmed by ContextMenuPolicy below
+            settings.AreDefaultContextMenusEnabled = true; // trimmed to Copy / Select all below
             settings.AreDefaultScriptDialogsEnabled = false;
             settings.AreHostObjectsAllowed = false;
             settings.IsWebMessageEnabled = true;
@@ -230,33 +230,24 @@ namespace JustMd
             }
         }
 
-        // ---------- context menu: Copy / Select all, plus editing commands in the editor (spelling has its own popover) ----------
+        // ---------- context menu: Copy / Select all, plus editing commands in the editor ----------
 
         private void OnContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
         {
             IList<CoreWebView2ContextMenuItem> items = e.MenuItems;
             bool editable = e.ContextMenuTarget.IsEditable;
             bool hasSelectAll = false;
-
-            // Separators stay in the editor only: the read-only menu has none between Copy and Select all.
             for (int i = items.Count - 1; i >= 0; i--)
             {
-                CoreWebView2ContextMenuItem item = items[i];
-                if (item.Name == "selectAll")
+                string name = items[i].Name;
+                if (name == "selectAll")
                 {
                     hasSelectAll = true;
                 }
-                else if (!(editable && item.Kind == CoreWebView2ContextMenuItemKind.Separator)
-                    && !ContextMenuPolicy.Keeps(item.Name, editable))
+                else if (name != "copy" && !(editable && name is "cut" or "paste" or "undo" or "redo"))
                 {
                     items.RemoveAt(i);
                 }
-            }
-
-            List<bool> isSeparator = items.Select(item => item.Kind == CoreWebView2ContextMenuItemKind.Separator).ToList();
-            foreach (int index in ContextMenuPolicy.RedundantSeparators(isSeparator))
-            {
-                items.RemoveAt(index);
             }
 
             if (!hasSelectAll && Core != null && !editable)

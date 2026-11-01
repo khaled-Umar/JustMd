@@ -8,6 +8,7 @@ namespace JustMd.Core.Spelling
     {
         bool IsSupported(string language);
 
+        /// <summary>The misspellings in the text. Throws if the language cannot answer: an empty list means every word is accepted.</summary>
         IReadOnlyList<SpellingError> Check(string language, string text);
 
         IReadOnlyList<string> Suggest(string language, string word);

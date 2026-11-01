@@ -16,6 +16,7 @@
 //
 // Spelling exists only when "edit" says spelling: true. The page then sends spellCheck and, from
 // its own menu, spellSuggest, spellIgnore and spellAdd; underlines change no text and no history.
+// With nativeSpelling: true in "edit" the browser's own checker is left on.
 (function () {
   'use strict';
 
@@ -119,6 +120,7 @@
       state: state,
       baseline: parsed.baseline,
       rtl: !!msg.rtl,
+      nativeSpelling: msg.nativeSpelling === true,
       // What is on disk. Kept apart from the baseline: serialising against the original baseline
       // stays correct after a save, and the undo history survives it.
       savedDoc: parsed.doc,
@@ -193,7 +195,7 @@
       dispatchTransaction: dispatchTransaction,
       nodeViews: nodeViews,
       handleClick: onEditorClick,
-      attributes: { 'aria-label': 'Document editor', spellcheck: 'false' }
+      attributes: { 'aria-label': 'Document editor', spellcheck: entry.nativeSpelling ? 'true' : 'false' }
     });
     applyDirection(entry);
     el.scroller.scrollTop = top;
@@ -840,11 +842,16 @@
   // The caret rule hides the underline of a word the caret stands at the end of, and that word is
   // still misspelled: there the mouse position decides, as there is no element to go by.
   function spellingErrorFor(event) {
+    var selection = view.state.selection;
     var target = event.target && event.target.closest ? event.target.closest('.spell-error') : null;
     if (target) {
-      return PM.spelling.errorAt(view.state, view.posAtDOM(target, 0));
+      // One position in: at the boundary of two flagged words, errorAt would return the left one.
+      var flagged = PM.spelling.errorAt(view.state, view.posAtDOM(target, 0) + 1);
+      // Inside a selection of anything but this word the browser's menu stays, so Cut and Copy do.
+      // A click outside the selection has already collapsed it in the DOM; the state hears later.
+      var collapsed = selection.empty || document.getSelection().isCollapsed;
+      return flagged && (collapsed || (selection.from === flagged.from && selection.to === flagged.to)) ? flagged : null;
     }
-    var selection = view.state.selection;
     var error = selection.empty ? PM.spelling.errorAt(view.state, selection.head) : null;
     if (!error || error.to !== selection.head) {
       return null;

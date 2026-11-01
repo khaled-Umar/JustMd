@@ -403,14 +403,59 @@ test('deleting a repeated word also removes one space before it', (t) => {
   const context = setup('the  the end\n\nthe\n');
   const { state, id, text } = flushed(context, t);
   const start = text[0].lastIndexOf('the');
-  const next = answered(state, id, [[{ start, length: 3, language: 'en-US', action: 3 }], [{ start: 0, length: 3, language: 'en-US', action: 3 }]]);
+  const next = answered(state, id, [[{ start, length: 3, language: 'en-US', action: 3 }], []]);
   const pos = blockPos(next.doc, 0) + 1 + start;
   const deleted = next.apply(spelling.replace(next, spelling.errorAt(next, pos), ''));
   assert.equal(deleted.doc.child(0).textContent, 'the  end');
-  const alone = spelling.errorAt(deleted, find(deleted.doc, 'end') + 5);
-  const emptied = deleted.apply(spelling.replace(deleted, alone, ''));
+  const from = blockPos(deleted.doc, 1) + 1;
+  const emptied = deleted.apply(spelling.replace(deleted, { from, to: from + 3, word: 'the' }, ''));
   assert.equal(emptied.doc.childCount, 2, 'the block stays');
   assert.equal(emptied.doc.child(1).textContent, '');
+});
+
+// Whether a delete on the last occurrence of the word in the only block survives results.
+function deleteKept(markdown, word, t) {
+  const context = setup(markdown);
+  const { state, id, text } = flushed(context, t);
+  const start = text[0].lastIndexOf(word);
+  assert.ok(start >= 0, `the checker sees ${word} in ${JSON.stringify(text[0])}`);
+  const next = answered(state, id, [[{ start, length: word.length, language: 'en-US', action: 3 }]]);
+  const decorations = decorationsOf(next);
+  if (decorations.length) assert.equal(decorations[0].spec.action, 3);
+  return decorations.length === 1;
+}
+
+test('a delete is kept only for a word the real text repeats', (t) => {
+  const kept = [
+    'file file', 'file   file', 'a\nfile file', 'file\nfile', 'file file.', 'file file, ok',
+    '**file** file', '[file](https://a.example) file', 'fi**le** file', 'ok **file** file', 'file *file*',
+    'x ![a](b.png) file file', 'file file ![a](b.png)', 'file file![a](b.png)',
+  ];
+  for (const markdown of kept) assert.equal(deleteKept(`${markdown}\n`, 'file', t), true, markdown);
+  const dropped = [
+    'file ملف file', 'file ملف  file', 'fileملف file', 'ملفfile file', 'file fileملف', 'file file1',
+    '`file` file', 'f`ile` file', 'file `x` file', 'x`y`file file', 'file file`x`', 'file`x` file',
+    'file ![a](b.png) file', 'file![a](b.png) file', '![a](b.png)file file', 'file ![a](b.png)  file', 'file<br>file x', 'file  \nfile',
+    'File file', 'afile file', 'x file', 'other file', '(file file',
+  ];
+  for (const markdown of dropped) assert.equal(deleteKept(`${markdown}\n`, 'file', t), false, markdown);
+  assert.equal(deleteKept('file\n', 'file', t), false, 'the first word of a block');
+  assert.equal(deleteKept('a ![b](c.png) a\n', 'a', t), false, 'a one-letter word after an atom');
+});
+
+test('the repeat check touches only deletes and follows edits made since the request', (t) => {
+  const context = setup('file ملف file\n');
+  const { state, id, text } = flushed(context, t);
+  const at = text[0].lastIndexOf('file');
+  const asked = answered(state, id, [[{ start: at, length: 4, language: 'en-US', action: 1 }]]);
+  assert.deepEqual(words(asked), ['file'], 'an ordinary error here is not a delete');
+  const again = setup('file file\n');
+  const flush = flushed(again, t);
+  const moved = flush.state.apply(flush.state.tr.insertText('new ', 1));
+  const next = answered(moved, flush.id, [[{ start: 5, length: 4, language: 'en-US', action: 3 }]]);
+  assert.deepEqual(words(next), ['file']);
+  assert.equal(moved.doc.textContent, 'new file file');
+  assert.equal(next.apply(spelling.replace(next, spelling.errorAt(next, 10), '')).doc.textContent, 'new file');
 });
 
 test('replace refuses a stale error and an unusable text', (t) => {
@@ -424,6 +469,39 @@ test('replace refuses a stale error and an unusable text', (t) => {
   assert.equal(spelling.replace(next, null, 'word'), null);
   const moved = next.apply(next.tr.insertText('x', 1));
   assert.equal(spelling.replace(moved, error, 'word'), null);
+});
+
+test('errorAt one position in tells adjacent flagged words apart', (t) => {
+  const context = setup('Exxcelملفف\n');
+  const { state, id } = flushed(context, t);
+  const from = find(state.doc, 'Exxcel');
+  const next = answered(state, id, [[{ start: 0, length: 6, language: 'en-US', action: 1 }, { start: 6, length: 4, language: 'ar-SA', action: 1 }]]);
+  assert.equal(spelling.errorAt(next, from + 6).word, 'Exxcel', 'touching counts, the left word first');
+  assert.equal(spelling.errorAt(next, from + 7).word, 'ملفف');
+  const single = setup('aملفف\n');
+  const one = flushed(single, t);
+  const singles = answered(one.state, one.id, [[{ start: 0, length: 1, language: 'en-US', action: 1 }, { start: 1, length: 4, language: 'ar-SA', action: 1 }]]);
+  assert.equal(spelling.errorAt(singles, 2).word, 'a', 'a one-letter word still gets its own menu');
+});
+
+test('a scan goes out in requests of at most maxScanLength, other work in one', (t) => {
+  const context = setup('ab\n\ncd\n\nef\n', { maxScanLength: 5 });
+  const { view, tick } = mount(context, t);
+  tick();
+  assert.deepEqual(context.sent.map((r) => [r.blocks, r.scan]), [[['ab', 'cd'], true], [['ef'], true]]);
+  const tr = view.state.tr.insertText('x', find(view.state.doc, 'ef')).insertText('x', find(view.state.doc, 'ab'));
+  view.dispatch(tr);
+  tick();
+  assert.deepEqual(context.sent.slice(2).map((r) => [r.blocks, r.scan]), [[['xab', 'xef'], false]]);
+});
+
+test('maxScanLength never lifts maxRequestLength, and a large block still goes out alone', (t) => {
+  const small = setup('ab\n\ncd\n', { maxRequestLength: 3 });
+  mount(small, t).tick();
+  assert.deepEqual(small.sent.map((r) => r.blocks), [['ab'], ['cd']]);
+  const large = setup(`ab\n\n${'x'.repeat(8)}\n\ncd\n`, { maxScanLength: 5 });
+  mount(large, t).tick();
+  assert.deepEqual(large.sent.map((r) => r.blocks), [['ab'], ['x'.repeat(8)], ['cd']]);
 });
 
 test('the caret rule hides only the word the caret ends, and only with an empty selection', (t) => {
