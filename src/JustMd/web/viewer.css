@@ -1583,6 +1583,12 @@ body.editing .editbar {
     box-decoration-break: clone;
   }
 
+  /* An image cannot split across pages, so keep it inside the padding above. */
+  .markdown-body img {
+    max-height: calc(100vh - 30mm);
+    object-fit: contain;
+  }
+
   .spell-error {
     text-decoration: none;
   }
