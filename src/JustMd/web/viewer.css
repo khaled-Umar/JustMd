@@ -1527,6 +1527,12 @@ body.editing .editbar {
 
 /* ---------- Print ---------- */
 
+/* Zero page margins leave the browser no room for its header and footer;
+   the page margin is restored as padding repeated on every printed page. */
+@page {
+  margin: 0;
+}
+
 @media print {
   :root,
   [data-theme="dark"] {
@@ -1573,7 +1579,14 @@ body.editing .editbar {
 
   .markdown-body {
     max-width: none;
-    padding: 0;
+    padding: 15mm;
+    box-decoration-break: clone;
+  }
+
+  /* An image cannot split across pages, so keep it inside the padding above. */
+  .markdown-body img {
+    max-height: calc(100vh - 30mm);
+    object-fit: contain;
   }
 
   .spell-error {
