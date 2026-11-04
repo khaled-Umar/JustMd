@@ -75,6 +75,18 @@ const CASES = {
   'unmatched inline html': 'a <b> c\n\nd </i> e\n',
   'javascript links stay as text': '[x](javascript:alert(1)) ![y](javascript:alert(1)) [z](java&#9;script:alert(1))\n',
   'data image': '![d](data:image/png;base64,AAAA)\n',
+  'sized image inline': 'a <img src="x.png" width="300"> b\n',
+  'sized image alone': '<img src="x.png" width="300">\n',
+  'sized image alone, no newline': '<img src="x.png" width="300">',
+  'image tag in odd style': "   <IMG  height=2 SRC='x.png' Width = 300 />  \n",
+  'image tag then paragraph': '<img src="x.png" width="300">\n\npara\n',
+  'image tag then whitespace line and paragraph': '<img src="x.png" width="300">\n  \t\npara\n',
+  'image tag between wide gaps': 'a\n\n\n<img src="x.png">\n\n\nb\n',
+  'image tag with the next line in its block': '<img src="x.png" width="300">\ntext\n',
+  'image tag in a quote then a paragraph': '> <img src="x.png" width="300">\ntext\n',
+  'image tags in lists': '- <img src="x.png" width="300">\n- <img src="y.png">\n\n1. <img src="x.png" width="3">\n\n2. b\n',
+  'image tag in a table': '| a |\n|---|\n| <img src="x.png" width="300"> |\n',
+  'refused image tags': '<img src="x.png" class="c">\n\na <img src="x.png" onerror="y"> b\n\n<img src="x.png" width="50%">\n',
   'link with parens and title': "[a](b(c)d 'e') [f](<g h> (i))\n",
   'grid table': '+---+\n| a |\n+===+\n',
   'definition list': 'Term\n: Def\n\n    Indented continuation\n',
@@ -471,4 +483,137 @@ test('serialize tolerates a document with blocks the baseline does not know', ()
   const { baseline } = parse('a\n\nb\n');
   const other = parse('c\n\nd\n\ne\n\nf\n').doc;
   assert.doesNotThrow(() => serialize(other, baseline));
+});
+
+const firstImage = (doc) => {
+  let found = null;
+  doc.descendants((node, pos) => {
+    if (!found && node.type === schema.nodes.image) found = { node, pos };
+    return !found;
+  });
+  return found;
+};
+
+test('an inline image tag is an image node and stays byte-identical', () => {
+  const source = 'a <img src="x.png" width="300"> b\n';
+  const { doc, baseline } = parse(source);
+  const image = doc.firstChild.child(1);
+  assert.equal(image.type, schema.nodes.image);
+  assert.equal(image.attrs.src, 'x.png');
+  assert.equal(image.attrs.width, 300);
+  assert.equal(image.attrs.height, null);
+  assert.equal(serialize(doc, baseline), source);
+});
+
+test('an image tag alone on a line is a paragraph holding the image', () => {
+  const { doc } = parse('<img src="x.png" alt="A" title="T" width="300" height="20">\n');
+  assert.equal(doc.childCount, 1);
+  assert.equal(doc.firstChild.type, schema.nodes.paragraph);
+  assert.equal(doc.firstChild.childCount, 1);
+  assert.deepEqual(
+    { ...doc.firstChild.firstChild.attrs },
+    { src: 'x.png', alt: 'A', title: 'T', width: 300, height: 20 },
+  );
+});
+
+test('an image tag block and the paragraph after it are two blocks', () => {
+  for (const gap of ['\n', '   \n', '\n\n']) {
+    const source = `<img src="x.png" width="300">\n${gap}para\n`;
+    const { doc, baseline } = parse(source);
+    assert.deepEqual([doc.childCount, doc.child(0).firstChild.type.name, doc.child(1).textContent], [2, 'image', 'para']);
+    assert.equal(serialize(doc, baseline), source);
+    assert.equal(baseline.blocks[0].end, 1);
+    // Rewriting either block keeps the original gap.
+    assert.equal(serialize(typeBefore(doc, 'para', 'x'), baseline), `<img src="x.png" width="300">\n${gap}xpara\n`);
+    const resized = EditorState.create({ doc }).tr.setNodeMarkup(1, null, { ...doc.child(0).firstChild.attrs, width: 200 }).doc;
+    assert.equal(serialize(resized, baseline), `<img src="x.png" width="200">\n${gap}para\n`);
+  }
+});
+
+test('a line right after an image tag belongs to the HTML block, which stays raw', () => {
+  const { doc } = parse('<img src="x.png" width="300">\ntext\n');
+  assert.equal(doc.childCount, 1);
+  assert.equal(doc.firstChild.type, schema.nodes.html_block);
+  // But a paragraph cannot be interrupted, so here the tag is inline.
+  const inline = parse('text\n<img src="x.png" width="300">\n').doc;
+  assert.equal(inline.firstChild.type, schema.nodes.paragraph);
+  assert.equal(inline.firstChild.lastChild.attrs.width, 300);
+});
+
+test('an image tag in a list item keeps the list tight or loose', () => {
+  const tight = parse('- <img src="x.png" width="300">\n- b\n');
+  assert.equal(tight.doc.firstChild.attrs.tight, true);
+  assert.equal(firstImage(tight.doc).node.attrs.width, 300);
+  assert.equal(serialize(tight.doc, tight.baseline), '- <img src="x.png" width="300">\n- b\n');
+  assert.equal(serialize(typeBefore(tight.doc, 'b', 'x'), tight.baseline), '- <img src="x.png" width="300">\n- xb\n');
+
+  const onlyTags = parse('- <img src="x.png" width="1">\n- <img src="y.png" width="2">\n');
+  assert.equal(onlyTags.doc.firstChild.attrs.tight, true);
+
+  const loose = parse('- <img src="x.png" width="300">\n\n- b\n');
+  assert.equal(loose.doc.firstChild.attrs.tight, false);
+  assert.equal(serialize(typeBefore(loose.doc, 'b', 'x'), loose.baseline), '- <img src="x.png" width="300">\n\n- xb\n');
+});
+
+test('an image tag in a quote is an image', () => {
+  const { doc, baseline } = parse('> <img src="x.png" width="300">\n\nafter\n');
+  assert.equal(firstImage(doc).node.attrs.width, 300);
+  assert.equal(serialize(typeBefore(doc, 'after', 'x'), baseline), '> <img src="x.png" width="300">\n\nxafter\n');
+});
+
+test('an image tag in a table cell is an image and survives a rewrite', () => {
+  const source = '| a | b |\n|---|---|\n| <img src="x.png" alt="A" width="300"> | c |\n';
+  const { doc, baseline } = parse(source);
+  const cell = doc.firstChild.child(1).child(0);
+  assert.equal(cell.firstChild.type, schema.nodes.image);
+  assert.equal(cell.firstChild.attrs.width, 300);
+  assert.equal(doc.firstChild.child(1).child(1).textContent, 'c');
+  assert.equal(serialize(doc, baseline), source);
+  const edited = serialize(typeBefore(doc, 'c', 'x'), baseline);
+  assert.equal(edited, '| a | b |\n| --- | --- |\n| <img src="x.png" alt="A" width="300"> | xc |\n');
+  assert.equal(parse(edited).doc.firstChild.child(1).child(0).firstChild.attrs.width, 300);
+});
+
+test('a pipe in a sized image cannot split its table cell', () => {
+  const { doc, baseline } = parse('| a | b |\n|---|---|\n| ![p|q](x.png) | c |\n'.replace('p|q', 'p\\|q'));
+  const image = firstImage(doc);
+  assert.equal(image.node.attrs.alt, 'p|q');
+  const sized = EditorState.create({ doc }).tr.setNodeMarkup(image.pos, null, { ...image.node.attrs, src: 'r|s.png', width: 300 }).doc;
+  const saved = serialize(sized, baseline);
+  assert.ok(saved.includes('<img src="r&#124;s.png" alt="p&#124;q" width="300">'), saved);
+  const row = parse(saved).doc.firstChild.child(1);
+  assert.equal(row.childCount, 2);
+  assert.equal(row.child(0).firstChild.attrs.src, 'r|s.png');
+  assert.equal(row.child(0).firstChild.attrs.alt, 'p|q');
+  assert.equal(row.child(1).textContent, 'c');
+});
+
+test('image tags with anything extra stay raw HTML', () => {
+  const inline = parse('a <img src="x.png" class="c"> b\n').doc.firstChild.child(1);
+  assert.equal(inline.type, schema.nodes.html_inline);
+  assert.equal(inline.attrs.source, '<img src="x.png" class="c">');
+  assert.equal(parse('<img src="x.png" class="c">\n').doc.firstChild.type, schema.nodes.html_block);
+  assert.equal(parse('<p align="center"><img src="x.png"></p>\n').doc.firstChild.type, schema.nodes.html_block);
+  for (const tag of ['<img src="javascript:x" width="3">', '<img src="data:image/png;base64,AA" width="3">', '<img src="x.png" width="0">']) {
+    assert.equal(parse(`a ${tag} b\n`).doc.firstChild.child(1).type, schema.nodes.html_inline, tag);
+    assert.equal(parse(`${tag}\n`).doc.firstChild.type, schema.nodes.html_block, tag);
+  }
+});
+
+test('a tag the image rule accepts is always read as HTML by the inline rule', () => {
+  // The block rule hands the line to the inline parser: a tag that came back as text would be a bug.
+  for (const tag of [`<IMG SRC='a.png' Width=300 />`, '<img src=a.png/>', '<img src = "a b.png" alt="a>b">', '<img src="a.png" alt="`*_">']) {
+    const { doc, baseline } = parse(`${tag}\n`);
+    assert.equal(doc.firstChild.firstChild.type, schema.nodes.image, tag);
+    assert.equal(serialize(doc, baseline), `${tag}\n`);
+  }
+});
+
+test('a tag and its escaped values come back the same through a rewrite', () => {
+  const { baseline } = parse('');
+  const attrs = { src: 'a&b (1).png', alt: 'say "hi" <now>', title: 'T & "U"', width: 300, height: 20 };
+  const paragraph = schema.nodes.paragraph.create(null, schema.nodes.image.create(attrs));
+  const saved = serialize(schema.topNodeType.create(null, [paragraph]), baseline);
+  assert.equal(saved, '<img src="a&amp;b (1).png" alt="say &quot;hi&quot; &lt;now&gt;" title="T &amp; &quot;U&quot;" width="300" height="20">\n');
+  assert.deepEqual({ ...firstImage(parse(saved).doc).node.attrs }, attrs);
 });

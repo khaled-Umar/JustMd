@@ -3,7 +3,7 @@
 // message from the host, and the app bar's pencil button merely asks the host for one.
 //
 // Host -> page: edit, exitEdit, editorCommand, requestContent, saved, documentRenamed,
-// externalChange, imagePicked, spellResult, spellSuggestions. The page keeps one entry per editing
+// externalChange, imagePicked, imagePasted, spellResult, spellSuggestions. The page keeps one entry per editing
 // tab (state, undo history, baseline), so background tabs can still be saved; only the shown tab
 // has an EditorView.
 //
@@ -17,6 +17,10 @@
 // Spelling exists only when "edit" says spelling: true. The page then sends spellCheck and, from
 // its own menu, spellSuggest, spellIgnore and spellAdd; underlines change no text and no history.
 // With nativeSpelling: true in "edit" the browser's own checker is left on.
+//
+// Page -> host for images: pickImage (the popover's Browse), and pasteImage on a Ctrl+V of an image.
+// The host reads the clipboard itself and answers pasteImage with imagePasted { tabId, src } for
+// saved bytes, or with imagePicked for files copied in Explorer.
 (function () {
   'use strict';
 
@@ -53,6 +57,8 @@
   var SPELLING_RETRY_DELAY = 100;
   var ACTION_REPLACE = 2;
   var ACTION_DELETE = 3;
+  var MIN_IMAGE_DRAG_WIDTH = 16;
+  var MAX_IMAGE_WIDTH = 10000; // the size rule of insertImage and updateImage
   var PLAIN_COMMANDS = ['setParagraph', 'toggleBold', 'toggleItalic', 'toggleStrike', 'toggleCode',
     'toggleBulletList', 'toggleOrderedList', 'toggleTaskList', 'toggleBlockquote', 'setCodeBlock',
     'insertHorizontalRule', 'indent', 'outdent', 'undo', 'redo'];
@@ -84,7 +90,9 @@
     imageSrc: document.getElementById('pop-image-src'),
     imageAlt: document.getElementById('pop-image-alt'),
     imageTitle: document.getElementById('pop-image-title'),
+    imageWidth: document.getElementById('pop-image-width'),
     imageError: document.getElementById('pop-image-error'),
+    imageRefused: document.getElementById('pop-image-refused'),
     imageApply: document.getElementById('pop-image-apply'),
     popTable: document.getElementById('pop-table'),
     tableRows: document.getElementById('pop-table-rows'),
@@ -195,6 +203,7 @@
       dispatchTransaction: dispatchTransaction,
       nodeViews: nodeViews,
       handleClick: onEditorClick,
+      handlePaste: onPaste,
       attributes: { 'aria-label': 'Document editor', spellcheck: entry.nativeSpelling ? 'true' : 'false' }
     });
     applyDirection(entry);
@@ -281,6 +290,30 @@
     }
   }
 
+  // A file item with no type is one the browser has no MIME type for: the host decides by extension.
+  function isImageFile(file) {
+    return !file.type || /^image\//.test(file.type);
+  }
+
+  function clipboardHasImage(data) {
+    var items = Array.prototype.slice.call(data.items || []);
+    return items.some(function (item) { return item.kind === 'file' && isImageFile(item); })
+      || Array.prototype.slice.call(data.files || []).some(isImageFile);
+  }
+
+  // An image is pasted as a file only when there is no text next to it, so that a selection copied
+  // from Excel or Word (which also offer a picture of it) keeps pasting as text.
+  function onPaste(editorView, event) {
+    var data = event.clipboardData;
+    if (!data || (data.getData('text/plain') || '').trim() !== '' || !clipboardHasImage(data) || !PROBES.insertImage(editorView.state)) {
+      return false;
+    }
+    // Otherwise a copied file, which comes back as imagePicked, would land in the popover's Source field.
+    closePopover(false);
+    post({ type: 'pasteImage', tabId: activeId });
+    return true;
+  }
+
   // ---------- node views ----------
 
   // The URL to show for a raw Markdown image source, or null for a placeholder.
@@ -299,27 +332,141 @@
     return Object.assign({}, node.attrs, changes);
   }
 
-  function ImageView(node) {
+  // updateImage replaces the node, which on its own would turn a selected image back into a caret.
+  function updateImageAt(editorView, pos, attrs) {
+    var state = editorView.state;
+    return PM.commands.updateImage(pos, attrs)(state, function (tr) {
+      editorView.dispatch(tr.setSelection(state.selection.getBookmark().resolve(tr.doc)));
+    });
+  }
+
+  function ImageView(node, editorView, getPos) {
+    var self = this;
+    var box = document.createElement('span');
+    box.className = 'image-box';
     var img = document.createElement('img');
     img.setAttribute('decoding', 'async');
     img.setAttribute('referrerpolicy', 'no-referrer');
     img.addEventListener('error', function () { img.classList.add('image-missing'); });
-    this.dom = img;
+    var handle = document.createElement('span');
+    handle.className = 'image-handle';
+    handle.contentEditable = 'false';
+    handle.setAttribute('aria-hidden', 'true');
+    handle.title = 'Drag to resize, double-click for the original size';
+    box.appendChild(img);
+    box.appendChild(handle);
+    this.dom = box;
+    this.img = img;
+    this.handle = handle;
+    this.editorView = editorView;
+    this.getPos = getPos;
+    this.drag = null;
+    this.url = null;
+
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.button === 0) {
+        e.preventDefault();
+        self.startDrag(e);
+      }
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (self.drag && e.pointerId === self.drag.pointerId) {
+        self.moveDrag(e);
+      }
+    });
+    handle.addEventListener('pointerup', function (e) {
+      if (self.drag && e.pointerId === self.drag.pointerId) {
+        self.endDrag(true);
+      }
+    });
+    handle.addEventListener('pointercancel', function (e) {
+      if (self.drag && e.pointerId === self.drag.pointerId) {
+        self.endDrag(false);
+      }
+    });
+    handle.addEventListener('dblclick', function (e) {
+      e.preventDefault();
+      if (self.node.attrs.width !== null || self.node.attrs.height !== null) {
+        self.resize({ width: null, height: null });
+      }
+    });
+    // ProseMirror makes the selected box draggable, and the browser would move it instead.
+    box.addEventListener('dragstart', function (e) {
+      if (self.drag) {
+        e.preventDefault();
+      }
+    });
     this.show(node);
   }
   ImageView.prototype.show = function (node) {
-    var img = this.dom;
+    var img = this.img;
     var raw = node.attrs.src || '';
     var url = displayUrl(raw);
     img.alt = node.attrs.alt || raw;
     img.title = node.attrs.title || raw;
-    img.classList.toggle('image-missing', !url);
-    if (url) {
-      img.src = url;
-    } else {
-      img.removeAttribute('src');
+    // Only for a new source: setting it again reloads the image, and a load that failed stays failed.
+    if (url !== this.url || !this.node) {
+      img.classList.toggle('image-missing', !url);
+      if (url) {
+        img.src = url;
+      } else {
+        img.removeAttribute('src');
+      }
+      this.url = url;
     }
     this.node = node;
+    if (!this.drag) {
+      this.showSize();
+    }
+  };
+  ImageView.prototype.showSize = function () {
+    var img = this.img;
+    ['width', 'height'].forEach(function (name) {
+      var value = this.node.attrs[name];
+      if (value === null || value === undefined) {
+        img.removeAttribute(name);
+      } else {
+        img.setAttribute(name, value);
+      }
+    }, this);
+  };
+  // The drag is measured from where it started, not from the image's left edge: in an RTL line (or
+  // a centred one) the left edge moves as the image grows, and the width would run away from the pointer.
+  ImageView.prototype.startDrag = function (e) {
+    closePopover(false); // the cancelled pointerdown means the document's mousedown listener hears nothing
+    this.handle.setPointerCapture(e.pointerId);
+    this.drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startWidth: parseFloat(getComputedStyle(this.img).width) || this.img.getBoundingClientRect().width,
+      width: null
+    };
+  };
+  ImageView.prototype.moveDrag = function (e) {
+    var drag = this.drag;
+    if (drag.width === null && e.clientX === drag.startX) {
+      return;
+    }
+    drag.width = Math.max(MIN_IMAGE_DRAG_WIDTH, Math.min(MAX_IMAGE_WIDTH, Math.round(drag.startWidth + e.clientX - drag.startX)));
+    this.img.setAttribute('width', drag.width);
+  };
+  ImageView.prototype.endDrag = function (commit) {
+    var drag = this.drag;
+    this.drag = null;
+    if (this.handle.hasPointerCapture(drag.pointerId)) {
+      this.handle.releasePointerCapture(drag.pointerId);
+    }
+    // Past the column max-width caps what is shown: store what the user saw, not where the pointer went.
+    var width = drag.width === null ? null : Math.min(drag.width, Math.round(parseFloat(getComputedStyle(this.img).width)) || drag.width);
+    if (commit && width !== null && width !== this.node.attrs.width) {
+      this.resize({ width: width, height: null });
+    }
+    // After a commit this.node is the new node; after a refusal or a cancel it undoes the live width.
+    this.showSize();
+  };
+  ImageView.prototype.resize = function (attrs) {
+    var pos = this.getPos();
+    return typeof pos === 'number' && updateImageAt(this.editorView, pos, attrs);
   };
   ImageView.prototype.update = function (node) {
     if (node.type !== this.node.type) {
@@ -327,6 +474,13 @@
     }
     this.show(node);
     return true;
+  };
+  ImageView.prototype.stopEvent = function (e) {
+    return e.target === this.handle;
+  };
+  ImageView.prototype.ignoreMutation = function () { return true; };
+  ImageView.prototype.destroy = function () {
+    this.drag = null;
   };
 
   function htmlSource(node) {
@@ -483,7 +637,7 @@
   };
 
   var nodeViews = {
-    image: function (node) { return new ImageView(node); },
+    image: function (node, editorView, getPos) { return new ImageView(node, editorView, getPos); },
     html_block: function (node) { return new HtmlBlockView(node); },
     html_inline: function (node) { return new HtmlInlineView(node); },
     list_item: function (node, editorView, getPos) { return new ListItemView(node, editorView, getPos); },
@@ -768,22 +922,34 @@
     el.imageSrc.value = image ? image.attrs.src || '' : '';
     el.imageAlt.value = image ? image.attrs.alt || '' : '';
     el.imageTitle.value = image ? image.attrs.title || '' : '';
+    el.imageWidth.value = image && image.attrs.width !== null ? image.attrs.width : '';
     el.imageError.hidden = true;
+    el.imageRefused.hidden = true;
     el.imageApply.textContent = image ? 'Apply' : 'Insert';
     showPopover(el.popImage, rect, focus ? el.imageSrc : null);
   }
 
   function applyImage() {
     var src = el.imageSrc.value.trim();
+    el.imageRefused.hidden = true;
+    el.imageError.hidden = true;
     if (!src || !PM.isSafeImageSrc(src)) {
       el.imageError.hidden = false;
       el.imageSrc.focus();
       return;
     }
-    var attrs = { src: src, alt: el.imageAlt.value.trim() || null, title: el.imageTitle.value.trim() || null };
     var image = selectedImage();
-    var command = image ? PM.commands.updateImage(image.pos, attrs) : PM.commands.insertImage(attrs);
-    command(view.state, view.dispatch, view);
+    var width = el.imageWidth.value === '' ? null : clampField(el.imageWidth, 1, MAX_IMAGE_WIDTH, null);
+    var attrs = { src: src, alt: el.imageAlt.value.trim() || null, title: el.imageTitle.value.trim() || null, width: width };
+    if (width !== (image ? image.attrs.width : null)) {
+      attrs.height = null;
+    }
+    var done = image ? updateImageAt(view, image.pos, attrs) : PM.commands.insertImage(attrs)(view.state, view.dispatch, view);
+    if (!done) {
+      // The popover stays open with everything the user typed.
+      el.imageRefused.hidden = false;
+      return;
+    }
     closePopover(true);
   }
 
@@ -802,6 +968,21 @@
     }
     if (PM.isSafeImageSrc(msg.src)) {
       execOn(entry, PM.commands.insertImage({ src: msg.src, alt: msg.alt || null, title: null }));
+    }
+  }
+
+  function onImagePasted(msg) {
+    var entry = entries.get(msg.tabId);
+    if (!entry || typeof msg.src !== 'string' || !PM.isSafeImageSrc(msg.src)) {
+      return;
+    }
+    var shown = entry.tabId === activeId && !!view;
+    if (shown) {
+      closePopover(false);
+    }
+    execOn(entry, PM.commands.insertImage({ src: msg.src, alt: null, title: null }));
+    if (shown) {
+      view.focus();
     }
   }
 
@@ -1078,6 +1259,7 @@
       case 'documentRenamed': onDocumentRenamed(msg); break;
       case 'externalChange': onExternalChange(msg); break;
       case 'imagePicked': onImagePicked(msg); break;
+      case 'imagePasted': onImagePasted(msg); break;
       case 'spellResult': onSpellResult(msg); break;
       case 'spellSuggestions': onSpellSuggestions(msg); break;
     }
@@ -1183,7 +1365,7 @@
     bind('pop-spelling-ignore', function () { forgetWord('spellIgnore'); });
     bind('pop-spelling-add', function () { forgetWord('spellAdd'); });
     [el.linkText, el.linkHref, el.linkTitle].forEach(function (i) { onEnterKey(i, applyLink); });
-    [el.imageSrc, el.imageAlt, el.imageTitle].forEach(function (i) { onEnterKey(i, applyImage); });
+    [el.imageSrc, el.imageAlt, el.imageTitle, el.imageWidth].forEach(function (i) { onEnterKey(i, applyImage); });
     [el.tableRows, el.tableCols].forEach(function (i) { onEnterKey(i, applyTable); });
 
     el.editor.addEventListener('contextmenu', function (e) {
@@ -1234,6 +1416,8 @@
     '<div class="note">Raw <em>HTML</em> block</div>',
     '',
     'Inline <kbd>Ctrl</kbd> and an image: ![alt](images/missing.png)',
+    '',
+    '<img src="images/missing.png" width="200">',
     ''
   ].join('\n');
 

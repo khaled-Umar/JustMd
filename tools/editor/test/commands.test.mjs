@@ -225,6 +225,53 @@ test('insertImage, imageAt and updateImage', () => {
   assert.equal(serialize(updated.doc, baseline), '![B](img/a%20b.png "T")word\n');
 });
 
+test('insertImage writes a sized image as a tag and refuses bad sizes', () => {
+  const { state, baseline } = stateAt('word\n', 'word');
+  const inserted = run(state, commands.insertImage({ src: 'img/a%20b.png', alt: 'A', title: 'T', width: 300 })).state;
+  assert.equal(serialize(inserted.doc, baseline), '<img src="img/a%20b.png" alt="A" title="T" width="300">word\n');
+  assert.equal(queries.imageAt(inserted).attrs.width, 300);
+  assert.equal(queries.imageAt(inserted).attrs.height, null);
+  for (const bad of [0, -1, 1.5, 10001, '300', NaN]) {
+    assert.equal(commands.insertImage({ src: 'a.png', width: bad })(state), false, String(bad));
+    assert.equal(commands.insertImage({ src: 'a.png', height: bad })(state), false, String(bad));
+  }
+});
+
+test('updateImage validates sizes', () => {
+  const { state } = stateAt('![A](a.png)word\n', 'word');
+  const { pos } = queries.imageAt(state);
+  for (const bad of [0, -1, 1.5, 10001, '300', NaN]) {
+    assert.equal(commands.updateImage(pos, { width: bad })(state), false, String(bad));
+    assert.equal(commands.updateImage(pos, { height: bad })(state), false, String(bad));
+  }
+  for (const good of [1, 10000, null]) {
+    assert.equal(commands.updateImage(pos, { width: good, height: good })(state), true, String(good));
+  }
+});
+
+test('updateImage refuses to size an image whose source a tag could not hold', () => {
+  const { state } = stateAt('![d](data:image/png;base64,AAAA)word\n', 'word');
+  const { pos } = queries.imageAt(state);
+  assert.equal(commands.updateImage(pos, { width: 300 })(state), false);
+  assert.equal(commands.updateImage(pos, { alt: 'B' })(state), true);
+});
+
+test('image parseDOM reads sizes and ignores bad ones, and toDOM writes only what is set', () => {
+  const { spec } = schema.nodes.image;
+  const rule = spec.parseDOM[0];
+  const sized = rule.getAttrs(fakeElement({ src: 'a.png', width: '300', height: '20' }));
+  assert.equal(sized.width, 300);
+  assert.equal(sized.height, 20);
+  const bad = rule.getAttrs(fakeElement({ src: 'a.png', width: 'abc', height: '0' }));
+  assert.equal(bad.width, null);
+  assert.equal(bad.height, null);
+  assert.equal(rule.getAttrs(fakeElement({ src: 'a.png' })).width, null);
+
+  const dom = (attrs) => spec.toDOM(schema.nodes.image.create(attrs))[1];
+  assert.deepEqual(dom({ src: 'a.png' }), { src: 'a.png', alt: null, title: null });
+  assert.deepEqual(dom({ src: 'a.png', width: 300, height: 20 }), { src: 'a.png', alt: null, title: null, width: 300, height: 20 });
+});
+
 test('commands that do not apply report false instead of throwing', () => {
   const { state } = stateAt('```\ncode\n```\n', 'code');
   assert.equal(commands.toggleBold(state), false);

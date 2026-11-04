@@ -889,6 +889,66 @@ namespace JustMd
             }
         }
 
+        /// <summary>
+        /// Ctrl+V of an image. The clipboard is read here, on the UI thread, and image bytes never
+        /// cross the page bridge: the page only gets the reference to insert.
+        /// </summary>
+        private async Task PasteImageAsync(DocumentTab tab)
+        {
+            if (!tab.IsEditing)
+            {
+                return;
+            }
+
+            // Bytes first: a file offered next to them is the source app's temporary copy.
+            byte[]? png = ClipboardImages.TryGetPng();
+            if (png == null)
+            {
+                // Same as a drop: a reference to the original, no copy.
+                foreach (string file in ClipboardImages.GetImageFiles())
+                {
+                    PostImagePicked(tab, file);
+                }
+
+                return;
+            }
+
+            if (png.Length > MaxImageBytes)
+            {
+                ShowEditError("The image on the clipboard is larger than " +
+                              (MaxImageBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) + " MB, so it was not pasted.");
+                return;
+            }
+
+            if (tab.Path == null)
+            {
+                DialogResult choice = MessageBox.Show(this,
+                    tab.DisplayName + " has no file yet, so there is no folder to keep the image in.\n\nSave it now?",
+                    Program.AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                if (choice != DialogResult.OK || !await SaveAsAsync(tab))
+                {
+                    return;
+                }
+            }
+
+            string path = tab.Path!;
+            string imagePath;
+            try
+            {
+                imagePath = await Task.Run(() => PastedImages.Save(path, png, DateTime.Now));
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+            {
+                ShowEditError("The image could not be saved next to " + tab.DisplayName + ".\n\n" + ex.Message);
+                return;
+            }
+
+            if (IsStillEditing(tab, path))
+            {
+                Post(new HostMessage { Type = "imagePasted", TabId = tab.Id, Src = RelativeReferences.ForImage(path, imagePath) });
+            }
+        }
+
         // ---------- page restarts ----------
 
         /// <summary>

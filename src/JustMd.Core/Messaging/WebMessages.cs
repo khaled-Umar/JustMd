@@ -69,6 +69,9 @@ namespace JustMd.Core.Messaging
         /// <summary>User asked to browse for an image to insert.</summary>
         PickImage,
 
+        /// <summary>User pasted an image from the clipboard into the editor; the host reads the clipboard itself.</summary>
+        PasteImage,
+
         /// <summary>User chose to discard their changes after the file changed on disk.</summary>
         ReloadFromDisk,
 
@@ -224,6 +227,8 @@ namespace JustMd.Core.Messaging
                     return ParseTabCommand(dto, WebMessageType.SaveAs);
                 case "pickImage":
                     return ParseTabCommand(dto, WebMessageType.PickImage);
+                case "pasteImage":
+                    return ParseTabCommand(dto, WebMessageType.PasteImage);
                 case "reloadFromDisk":
                     return ParseTabCommand(dto, WebMessageType.ReloadFromDisk);
                 case "editorDirty":
@@ -430,7 +435,7 @@ namespace JustMd.Core.Messaging
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        /// <summary>render | welcome | error | tabs | theme | outline | toggleOutline | copied | scrollTo | selectAll | flushState | edit | exitEdit | editorCommand | requestContent | saved | documentRenamed | externalChange | imagePicked | spellResult | spellSuggestions.</summary>
+        /// <summary>render | welcome | error | tabs | theme | outline | toggleOutline | copied | scrollTo | selectAll | flushState | edit | exitEdit | editorCommand | requestContent | saved | documentRenamed | externalChange | imagePicked | imagePasted | spellResult | spellSuggestions.</summary>
         public string Type { get; set; } = string.Empty;
 
         /// <summary>Rendered (unsanitised) document HTML for "render"; the page sanitises it.</summary>
@@ -505,7 +510,7 @@ namespace JustMd.Core.Messaging
         /// <summary>Id the page echoes in "editorContent", for "requestContent"; the page's own id, for "spellResult" and "spellSuggestions".</summary>
         public int RequestId { get; set; }
 
-        /// <summary>Markdown image reference for "imagePicked".</summary>
+        /// <summary>Markdown image reference for "imagePicked" and "imagePasted".</summary>
         public string? Src { get; set; }
 
         /// <summary>Image alternative text for "imagePicked".</summary>

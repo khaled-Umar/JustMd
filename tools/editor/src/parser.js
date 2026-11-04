@@ -8,6 +8,7 @@
 
 import MarkdownIt from 'markdown-it';
 import { MarkdownParser } from 'prosemirror-markdown';
+import { parseImageTag } from './html-image.js';
 import { INLINE_SEPARATOR, schema } from './schema.js';
 
 const md = new MarkdownIt('commonmark', { html: true, linkify: false }).enable(['table', 'strikethrough']);
@@ -28,8 +29,39 @@ md.core.ruler.before('inline', 'justmd_footnote_labels', (state) => {
   for (const label of Object.keys(references)) if (label.startsWith('^')) delete references[label];
 });
 
+// An <img> tag alone in what CommonMark calls an HTML block is a paragraph holding that image. A block
+// rule rather than a rewrite of the html_block token, so that the list rule still marks the paragraph
+// of a tight list. A line after the tag would be part of the block, and then the block stays raw HTML.
+md.block.ruler.before('html_block', 'justmd_image_block', (state, startLine, endLine, silent) => {
+  if (state.sCount[startLine] - state.blkIndent >= 4) return false;
+  const line = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]);
+  if (!parseImageTag(line)) return false;
+  const next = startLine + 1;
+  if (next < endLine && !state.isEmpty(next) && state.sCount[next] >= state.blkIndent) return false;
+  if (silent) return true;
+  state.line = next;
+  state.push('paragraph_open', 'p', 1).map = [startLine, next];
+  const inline = state.push('inline', '', 0);
+  inline.content = line.trim();
+  inline.map = [startLine, next];
+  inline.children = [];
+  state.push('paragraph_close', 'p', -1);
+  return true;
+});
+
 const TASK_MARKER = /^\[([ xX])\](?:[ \t]+|$)/;
 const HTML_BREAK = /^<br\s*\/?>$/i;
+
+function htmlToImage(token) {
+  const image = parseImageTag(token.content);
+  if (!image) return;
+  token.type = 'image';
+  token.tag = 'img';
+  token.attrs = [['src', image.src]];
+  if (image.title) token.attrs.push(['title', image.title]);
+  token.children = [];
+  token.meta = { alt: image.alt, width: image.width, height: image.height };
+}
 
 md.core.ruler.after('inline', 'justmd_inline_nodes', (state) => {
   const { tokens } = state;
@@ -39,6 +71,7 @@ md.core.ruler.after('inline', 'justmd_inline_nodes', (state) => {
       token.children = token.children.filter((child) => !(child.type === 'html_inline' && child.content === INLINE_SEPARATOR));
       for (const child of token.children) {
         if (child.type === 'html_inline' && HTML_BREAK.test(child.content)) child.type = 'html_break';
+        if (child.type === 'html_inline') htmlToImage(child);
         // Keep source line breaks. prosemirror-markdown's default turns them into spaces, which
         // would reflow a wrapped paragraph and destroy alerts, definition lists and grid tables
         // as soon as their block is edited.
@@ -74,7 +107,9 @@ function imageAttrs(token) {
   return {
     src: token.attrGet('src'),
     title: token.attrGet('title') || null,
-    alt: md.renderer.renderInlineAsText(token.children, md.options, {}) || null,
+    alt: token.meta?.alt || md.renderer.renderInlineAsText(token.children, md.options, {}) || null,
+    width: token.meta?.width ?? null,
+    height: token.meta?.height ?? null,
   };
 }
 

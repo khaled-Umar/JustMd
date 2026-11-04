@@ -101,7 +101,9 @@ Files always open for reading. Press <kbd>F2</kbd> or the pencil button when you
 While editing, <kbd>F5</kbd>, <kbd>Ctrl</kbd>+<kbd>R</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> do nothing. The other shortcuts above keep working.
 
 - Links do not navigate while you edit. Clicking one places the cursor, and its popover offers **Open**, which goes through the usual link warning.
-- Choosing an image or dropping image files on the window inserts a relative reference. Images pasted from the clipboard are ignored.
+- Choosing an image or dropping image files on the window inserts a relative reference.
+- <kbd>Ctrl</kbd>+<kbd>V</kbd> of an image saves it as a PNG in a folder named after the document (`notes.md` gets `notes\image-....png`) and inserts a relative reference. An untitled tab offers Save As first, since it has no folder yet. An image file copied in Explorer is referenced where it is, without a copy. When the clipboard also holds text, as with a selection from Excel or Word, the text is pasted instead. Undo removes the reference but leaves the image file on disk.
+- To resize an image, select it and drag the handle at its corner, or set **Width (px)** in its popover. Double-click the handle for the original size. A resized image is stored as `<img src="..." width="...">`.
 - Spelling is checked with the Windows spell checker in the languages of your Windows language list (Settings > Time & language > Language & region) that have a dictionary installed (the *Basic typing* feature of a language). Latin-script words are checked against all your Latin-script languages that have a dictionary and underlined only when none accepts them; Arabic words likewise, so a mixed document is proofread as a whole. Suggestions come from those languages, and **Add to dictionary** writes to the first one. Misspelled words are underlined; right-click one for suggestions, **Ignore** (for this session) and **Add to dictionary**, which writes to the Windows user dictionary shared with other apps. Code, URLs and raw HTML are not checked, and nothing is downloaded. If your Windows display language is one JustMd does not check, the browser's own checker keeps underlining as before.
 - Files above 4 MB open for reading only.
 - Unsaved changes and untitled tabs are not restored in the next session, and no tab reopens in edit mode.
@@ -129,7 +131,7 @@ It runs the tests, publishes the app to `artifacts/publish`, and writes `artifac
 | --- | --- |
 | `src/JustMd.Core` | Rendering, link classification, local-image URLs, settings and session, the tab model, the document text model and atomic saving, the single-instance protocol |
 | `src/JustMd` | The WinForms shell (window, WebView2 host, link dialog) and the `web/` viewer and editor page |
-| `tests/JustMd.Tests` | Unit tests (625) |
+| `tests/JustMd.Tests` | Unit tests (655) |
 | `installer/` | Inno Setup script |
 | `assets/` | Logo, wordmark and app icon |
 | `tools/icon/` | Generator for everything in `assets/` plus the site favicons |

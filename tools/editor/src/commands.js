@@ -17,6 +17,7 @@ import {
   isInTable,
   selectedRect,
 } from 'prosemirror-tables';
+import { isValidSize } from './html-image.js';
 import { isSafeHref, isSafeImageSrc, schema } from './schema.js';
 
 const { nodes, marks } = schema;
@@ -229,13 +230,16 @@ function removeLink(state, dispatch) {
   return true;
 }
 
-function insertImage({ src, alt = null, title = null }) {
+const givenSizesValid = ({ width, height }) => (width === undefined || isValidSize(width)) && (height === undefined || isValidSize(height));
+
+function insertImage({ src, alt = null, title = null, width = null, height = null }) {
   return (state, dispatch) => {
     if (!src || !isSafeImageSrc(src)) return false;
+    if (!givenSizesValid({ width, height })) return false;
     const { $from } = state.selection;
     const index = $from.index();
     if (!$from.parent.canReplaceWith(index, index, nodes.image)) return false;
-    if (dispatch) dispatch(state.tr.replaceSelectionWith(nodes.image.create({ src, alt, title }), false).scrollIntoView());
+    if (dispatch) dispatch(state.tr.replaceSelectionWith(nodes.image.create({ src, alt, title, width, height }), false).scrollIntoView());
     return true;
   };
 }
@@ -245,7 +249,16 @@ function updateImage(pos, attrs) {
     const node = state.doc.nodeAt(pos);
     if (node?.type !== nodes.image) return false;
     if (attrs.src !== undefined && !isSafeImageSrc(attrs.src)) return false;
-    if (dispatch) dispatch(state.tr.setNodeMarkup(pos, null, { ...node.attrs, ...attrs }));
+    if (!givenSizesValid(attrs)) return false;
+    const next = {
+      ...node.attrs,
+      ...attrs,
+      width: attrs.width === undefined ? node.attrs.width : attrs.width,
+      height: attrs.height === undefined ? node.attrs.height : attrs.height,
+    };
+    // A sized image is written as a tag, and a tag with such a source (Markdown allows data:image) would read back as raw HTML.
+    if ((next.width !== null || next.height !== null) && !isSafeImageSrc(next.src)) return false;
+    if (dispatch) dispatch(state.tr.setNodeMarkup(pos, null, next));
     return true;
   };
 }
