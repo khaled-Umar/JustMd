@@ -26,6 +26,8 @@ All versions are pinned exactly. The `markdown-it` override keeps prosemirror-ma
 - A document with no edits comes back byte-identical, including syntax only Markdig understands.
 - Undo back to the original, or moving a block, restores or keeps its source. The unit is the top-level block: editing one list item rewrites the whole list.
 
+`<img>` tags with only src/alt/title/width/height (inline, or alone on a line) are images to the editor, if the src passes the image rule, the sizes are integers from 1 to 10000 and every named entity is one of `&amp; &lt; &gt; &quot; &apos;`. Any other `<img>` stays raw HTML. A rewritten block writes a sized image as `<img src alt title width height>` (attribute order and quoting normalised, `|` as `&#124;`) and an unsized one as `![alt](src)`. A sized image first on its line, with nothing else on that line and more of the block to follow, gets the separator `<!-- -->` described below, because the line would otherwise start an HTML block that swallows the rest.
+
 What a rewritten block loses (it renders the same unless noted):
 
 - Source style: `_em_` becomes `*em*`, setext headings become ATX, `[a][ref]` becomes `[a](url)`, indented code becomes fenced, table padding goes away, list numbering becomes sequential, lazy quote lines get markers, indentation of continuation lines goes away.
@@ -58,7 +60,7 @@ basePlugins({ onEscape, underWebView }) -> Plugin[]   // keymap (Ctrl bindings o
 commands: { setParagraph, setHeading(level), toggleBold, toggleItalic, toggleStrike, toggleCode,
   toggleBulletList, toggleOrderedList, toggleTaskList, toggleBlockquote, setCodeBlock,
   insertTable(rows, cols), insertHorizontalRule, setLink({href, title}), removeLink,
-  insertImage({src, alt, title}), updateImage(pos, attrs), indent, outdent, undo, redo,
+  insertImage({src, alt, title, width?, height?}), updateImage(pos, attrs), indent, outdent, undo, redo,
   table: { addRowBefore, addRowAfter, addColumnBefore, addColumnAfter, deleteRow, deleteColumn, deleteTable } }
   // each command is a ProseMirror Command (state, dispatch) => boolean
 queries: { activeMarks(state) -> Set<string>, blockType(state) -> 'paragraph'|'heading-1'..'heading-6'|'code_block'|...,
@@ -81,9 +83,10 @@ Notes for callers:
 - **Do not compare a document with a baseline from a later `parse`** for dirtiness: their source attributes differ even when the text is the same.
 - `baseline.rtl` is the caller's to set; `parse` and `serialize` ignore it.
 - `setLink`, `insertImage` and `updateImage` return false for targets the schema's link and image rules would reject.
+- `insertImage` and `updateImage` also return false for a given `width` or `height` that is not `null` or an integer from 1 to 10000; `null` clears it, leaving it out keeps it. `updateImage` also returns false when the result would be a sized image whose existing `src` fails the image rule (`![](data:image/...)`), since that tag would read back as raw HTML.
 - `setHeading`, `setParagraph` and `setCodeBlock` return false where they change nothing or cannot apply; `setCodeBlock` inside a code block turns it back into a paragraph.
 - `table.addRowBefore` and `table.deleteRow` return false on the header row, since GFM's header is always the first row.
 - `toggleTaskList` turns plain list items into open tasks, and lifts items out of the list when all of them are already tasks; elsewhere it wraps the selection in a bullet list of open tasks.
 - Page-level keys in `basePlugins`: Enter, Shift+Enter (hard break; in a code block, leave it), Tab and Shift+Tab, Backspace, Delete, Escape. Enter on an empty last line of a code block also leaves it. Link, image and table shortcuts open page popovers, so they are not in the plain-browser bindings either.
 - `spelling.plugin` asks for text itself once a view is attached: the whole document on the first attach (`scan` true), then only changed blocks, 500 ms after the last change. A scan is sent in requests of at most `maxScanLength` characters (and never over `maxRequestLength`), so urgent work gets between them; a longer block goes alone. `results` and `clearWord` have no steps, so applying them cannot make a document dirty or add an undo step. `replace` is a real edit in its own undo step, and it rewrites the word's top-level block like any other edit (see Fidelity).
-- Node types the page renders with node views: `image` (`src` is the raw Markdown target), `html_block` and `html_inline` (`attrs.source`), `list_item` (`attrs.checked`: null, true or false), `code_block` (`attrs.params`).
+- Node types the page renders with node views: `image` (`src` is the raw Markdown target; `width` and `height` are null or an integer), `html_block` and `html_inline` (`attrs.source`), `list_item` (`attrs.checked`: null, true or false), `code_block` (`attrs.params`).

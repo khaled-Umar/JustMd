@@ -63,6 +63,18 @@ test('the bundle exposes the frozen contract as a global and round-trips', () =>
   assert.equal(api.serialize(doc, baseline), source);
 });
 
+test('the bundle knows sized images', () => {
+  const sandbox = {};
+  vm.runInNewContext(bundle, sandbox);
+  const api = sandbox.JustMdEditor;
+  assert.ok(api.schema.nodes.image.spec.attrs.width);
+  assert.ok(api.schema.nodes.image.spec.attrs.height);
+  const source = '<img src="x.png" width="300">\n';
+  const { doc, baseline } = api.parse(source);
+  assert.equal(doc.firstChild.firstChild.attrs.width, 300);
+  assert.equal(api.serialize(doc, baseline), source);
+});
+
 test('the bundle exposes the spelling plugin', () => {
   const sandbox = {};
   vm.runInNewContext(bundle, sandbox);

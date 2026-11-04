@@ -94,6 +94,7 @@ namespace JustMd.Tests
         [InlineData("save", WebMessageType.Save)]
         [InlineData("saveAs", WebMessageType.SaveAs)]
         [InlineData("pickImage", WebMessageType.PickImage)]
+        [InlineData("pasteImage", WebMessageType.PasteImage)]
         [InlineData("reloadFromDisk", WebMessageType.ReloadFromDisk)]
         public void Parses_tab_commands_and_requires_a_valid_tab(string type, WebMessageType expected)
         {
@@ -259,6 +260,15 @@ namespace JustMd.Tests
             Assert.Equal(
                 "{\"type\":\"imagePicked\",\"tabId\":1,\"src\":\"a.png\",\"alt\":\"a\"}",
                 new HostMessage { Type = "imagePicked", TabId = 1, Src = "a.png", Alt = "a" }.ToJson());
+        }
+
+        [Fact]
+        public void Image_pasted_message_carries_the_reference()
+        {
+            string json = new HostMessage { Type = "imagePasted", TabId = 1, Src = "a/b.png" }.ToJson();
+
+            Assert.Contains("\"type\":\"imagePasted\"", json);
+            Assert.Contains("\"src\":\"a/b.png\"", json);
         }
 
         [Fact]

@@ -1,13 +1,14 @@
 // Document schema: prosemirror-markdown's CommonMark schema plus what edit mode needs.
 //
 // Additions over the base schema: strike mark, GFM tables, task list items, raw HTML nodes,
-// list marker attributes, the optional `source` of a hard break, and the fidelity attributes
+// list marker attributes, the optional `source` of a hard break, the size of an image, and the fidelity attributes
 // srcIdx/srcPre on every block that can sit at the top level (see parser.js). The fidelity
 // attributes are never rendered to the DOM, so copied or pasted content does not carry them.
 
 import { Schema } from 'prosemirror-model';
 import { schema as base } from 'prosemirror-markdown';
 import { tableNodes } from 'prosemirror-tables';
+import { toSize } from './html-image.js';
 
 // Separates a delimiter from a letter without any output: serialize writes it where the flanking
 // rules need one and parse drops it, so it never becomes a node. The page's sanitiser strips comments.
@@ -93,16 +94,30 @@ nodes = nodes
   })
   .update('image', {
     ...nodes.get('image'),
+    attrs: { ...nodes.get('image').attrs, width: { default: null }, height: { default: null } },
     parseDOM: [
       {
         tag: 'img[src]',
         getAttrs(dom) {
           const src = dom.getAttribute('src');
           if (!isSafeImageSrc(src)) return false;
-          return { src, title: dom.getAttribute('title'), alt: dom.getAttribute('alt') };
+          return {
+            src,
+            title: dom.getAttribute('title'),
+            alt: dom.getAttribute('alt'),
+            width: toSize(dom.getAttribute('width')),
+            height: toSize(dom.getAttribute('height')),
+          };
         },
       },
     ],
+    toDOM(node) {
+      const { src, alt, title, width, height } = node.attrs;
+      const attrs = { src, alt, title };
+      if (width !== null) attrs.width = width;
+      if (height !== null) attrs.height = height;
+      return ['img', attrs];
+    },
   })
   .update('hard_break', {
     ...nodes.get('hard_break'),

@@ -436,6 +436,14 @@ namespace JustMd
 
                     break;
 
+                case WebMessageType.PasteImage:
+                    if (_tabs.FindById(message.TabId) is DocumentTab { IsEditing: true } pasting)
+                    {
+                        RunEditFlow(() => PasteImageAsync(pasting));
+                    }
+
+                    break;
+
                 case WebMessageType.ReloadFromDisk:
                     if (_tabs.FindById(message.TabId) is DocumentTab toReload)
                     {

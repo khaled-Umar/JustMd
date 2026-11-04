@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EditorState, parse, schema, serialize } from '../src/index.js';
-import { blockIndex, blockPos, changedLines, deleteBlock, fixture, moveBlock, typeBefore, withoutSource } from './helpers.mjs';
+import { EditorState, commands, parse, schema, serialize } from '../src/index.js';
+import { blockIndex, blockPos, changedLines, deleteBlock, fixture, moveBlock, run, typeBefore, withoutSource } from './helpers.mjs';
 
 test('editing one paragraph changes only its lines', () => {
   const source = fixture('full.md');
@@ -246,4 +246,64 @@ test('a fresh baseline with an old document never loses or duplicates definition
   const again = serialize(edited, fresh);
   assert.equal(again.split('[a]: b').length, 2, again);
   assert.ok(again.includes('new') && again.includes('one') && again.includes('two'));
+});
+
+function resize(markdown, attrs) {
+  const { doc, baseline } = parse(markdown);
+  let pos = null;
+  doc.descendants((node, at) => {
+    if (pos === null && node.type === schema.nodes.image) pos = at;
+    return pos === null;
+  });
+  const result = run(EditorState.create({ doc }), commands.updateImage(pos, attrs));
+  assert.equal(result.applied, true);
+  return { doc: result.state.doc, baseline, pos, markdown: serialize(result.state.doc, baseline) };
+}
+
+test('resizing an image tag rewrites it, and the result reads back', () => {
+  const { markdown } = resize('<img src="x.png" width="300">\n', { width: 200 });
+  assert.equal(markdown, '<img src="x.png" width="200">\n');
+  const again = parse(markdown).doc;
+  assert.equal(again.firstChild.type, schema.nodes.paragraph);
+  assert.equal(again.firstChild.firstChild.attrs.width, 200);
+});
+
+test('a Markdown image becomes a tag when sized and goes back when not', () => {
+  const sized = resize('![A](img/a.png)\n', { width: 300 });
+  assert.equal(sized.markdown, '<img src="img/a.png" alt="A" width="300">\n');
+  const cleared = run(EditorState.create({ doc: sized.doc }), commands.updateImage(sized.pos, { width: null })).state.doc;
+  assert.equal(serialize(cleared, sized.baseline), '![A](img/a.png)\n');
+  // Also from a tag, where there is no Markdown source to fall back on.
+  assert.equal(resize('<img src="x.png" alt="A" title="T" height="9">\n', { height: null }).markdown, '![A](x.png "T")\n');
+});
+
+test('leaving a size out keeps it', () => {
+  const { markdown } = resize('<img src="x.png" width="3" height="4">\n', { alt: 'A', width: undefined });
+  assert.equal(markdown, '<img src="x.png" alt="A" width="3" height="4">\n');
+});
+
+test('a sized image cannot swallow the rest of its block as an HTML block', () => {
+  // Its paragraph continues on the next line.
+  const wrapped = resize('![A](x.png)\nword **b**\n', { width: 300 });
+  assert.equal(wrapped.markdown, '<img src="x.png" alt="A" width="300"><!-- -->\nword **b**\n');
+  const again = parse(wrapped.markdown).doc;
+  assert.equal(again.firstChild.type, schema.nodes.paragraph);
+  assert.equal(again.firstChild.firstChild.attrs.width, 300);
+  assert.equal(again.firstChild.textContent, '\nword b');
+  // A nested list follows on the next line of a tight list.
+  const nested = resize('- ![A](x.png)\n  - sub\n- c\n', { width: 300 });
+  assert.equal(nested.markdown, '- <img src="x.png" alt="A" width="300"><!-- -->\n  - sub\n- c\n');
+  const item = parse(nested.markdown).doc.firstChild.child(0);
+  assert.equal(item.firstChild.firstChild.attrs.width, 300);
+  assert.equal(item.child(1).type, schema.nodes.bullet_list);
+  // Not where the tag does not start the block or text follows it on its line.
+  assert.equal(resize('a ![A](x.png)\nb\n', { width: 3 }).markdown, 'a <img src="x.png" alt="A" width="3">\nb\n');
+  assert.equal(resize('![A](x.png) a\nb\n', { width: 3 }).markdown, '<img src="x.png" alt="A" width="3"> a\nb\n');
+});
+
+test('a resized image tag in a list item or table cell reads back', () => {
+  const item = resize('- <img src="x.png" width="300">\n- b\n', { width: 200 });
+  assert.equal(item.markdown, '- <img src="x.png" width="200">\n- b\n');
+  const cell = resize('| a |\n|---|\n| <img src="x.png" width="300"> |\n', { width: 200 });
+  assert.equal(cell.markdown, '| a |\n| --- |\n| <img src="x.png" width="200"> |\n');
 });

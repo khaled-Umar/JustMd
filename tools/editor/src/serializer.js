@@ -3,6 +3,7 @@
 
 import { defaultMarkdownSerializer, MarkdownSerializer } from 'prosemirror-markdown';
 import { TableMap } from 'prosemirror-tables';
+import { imageTag } from './html-image.js';
 import { INLINE_SEPARATOR, schema } from './schema.js';
 
 // Markdig syntax markdown-it sees as plain text. Escaping the brackets would destroy it when the
@@ -319,11 +320,23 @@ function renderTable(state, table) {
   state.closeBlock(table);
 }
 
+const isSized = (image) => image.attrs.width !== null || image.attrs.height !== null;
+
+// A tag alone on the first line of a block starts an HTML block, which runs to the next blank line and
+// would swallow what follows as raw HTML. The separator after the tag makes that line a paragraph.
+const isLoneSizedImage = (paragraph) => {
+  const image = paragraph.childCount === 1 ? paragraph.firstChild : null;
+  return image?.type === schema.nodes.image && !image.marks.length && isSized(image);
+};
+const isList = (node) => node?.type === schema.nodes.bullet_list || node?.type === schema.nodes.ordered_list;
+
 const blockSerializer = new MarkdownSerializer(
   {
     ...defaultMarkdownSerializer.nodes,
-    paragraph(state, node) {
+    paragraph(state, node, parent, index) {
       renderRun(state, node, true);
+      // In a tight list a nested list comes on the next line.
+      if (state.inTightList && isLoneSizedImage(node) && isList(parent.maybeChild(index + 1))) state.out += INLINE_SEPARATOR;
       state.closeBlock(node);
     },
     heading(state, node) {
@@ -352,7 +365,13 @@ const blockSerializer = new MarkdownSerializer(
       }
       state.renderContent(node);
     },
-    image(state, node) {
+    image(state, node, parent, index) {
+      if (isSized(node)) {
+        state.write(imageTag(node.attrs));
+        const next = index + 1 < parent.childCount ? parent.child(index + 1) : null;
+        if (index === 0 && !node.marks.length && next?.isText && next.text.startsWith('\n')) state.write(INLINE_SEPARATOR);
+        return;
+      }
       const alt = (node.attrs.alt || '').replace(/\n/g, ' ');
       state.write(`![${state.esc(alt)}](${destination(node.attrs.src)}${titleSuffix(node.attrs.title)})`);
     },

@@ -208,7 +208,9 @@
     <label class="popover-field">Source <input id="pop-image-src" type="text" dir="ltr" autocomplete="off" spellcheck="false" placeholder="images/picture.png"></label>
     <label class="popover-field">Alt text <input id="pop-image-alt" type="text" autocomplete="off"></label>
     <label class="popover-field">Title <input id="pop-image-title" type="text" autocomplete="off"></label>
+    <label class="popover-field">Width (px) <input id="pop-image-width" type="number" min="1" max="10000" placeholder="auto"></label>
     <p id="pop-image-error" class="popover-error" hidden>Only web and local image paths are allowed.</p>
+    <p id="pop-image-refused" class="popover-error" hidden>This change could not be applied to the image.</p>
     <div class="popover-actions">
       <button id="pop-image-browse" class="btn btn-compact" type="button">Browse&hellip;</button>
       <button id="pop-image-apply" class="btn btn-compact btn-primary" type="button">Insert</button>

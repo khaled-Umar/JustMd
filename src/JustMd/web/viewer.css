@@ -1494,6 +1494,36 @@ body.editing .editbar {
   unicode-bidi: isolate;
 }
 
+#editor .image-box {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+#editor .image-box > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#editor .image-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  cursor: nwse-resize;
+  display: none;
+  touch-action: none;
+}
+
+#editor .ProseMirror-selectednode > .image-handle {
+  display: block;
+}
+
 #editor img.image-missing {
   display: inline-block;
   min-width: 96px;
