@@ -46,7 +46,7 @@ namespace JustMd
                 }
 
                 StringCollection files = Clipboard.GetFileDropList();
-                return files.Cast<string>().Where(LocalImageUrls.IsImageExtension).ToList();
+                return files.Cast<string>().Where(LocalImageUrls.IsImageExtension).Where(File.Exists).ToList();
             }
             catch (Exception ex) when (IsClipboardFailure(ex))
             {

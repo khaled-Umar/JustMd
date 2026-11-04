@@ -900,21 +900,16 @@ namespace JustMd
                 return;
             }
 
-            // Same as a drop: a reference to the original, no copy.
-            IReadOnlyList<string> files = ClipboardImages.GetImageFiles();
-            if (files.Count > 0)
+            // Bytes first: a file offered next to them is the source app's temporary copy.
+            byte[]? png = ClipboardImages.TryGetPng();
+            if (png == null)
             {
-                foreach (string file in files)
+                // Same as a drop: a reference to the original, no copy.
+                foreach (string file in ClipboardImages.GetImageFiles())
                 {
                     PostImagePicked(tab, file);
                 }
 
-                return;
-            }
-
-            byte[]? png = ClipboardImages.TryGetPng();
-            if (png == null)
-            {
                 return;
             }
 
